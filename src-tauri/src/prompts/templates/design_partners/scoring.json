@@ -1,0 +1,56 @@
+{
+  "requiredCharacteristics": [
+    {
+      "id": "has-problem",
+      "name": "Has the problem",
+      "description": "Clear evidence that this team deals with the problem described in About Us today, not just that it could in theory.",
+      "enabled": true
+    },
+    {
+      "id": "can-try-tools",
+      "name": "Can try new tools freely",
+      "description": "Small or autonomous enough that the people with the problem can try a new tool without procurement, security review, or a long approval process.",
+      "enabled": true
+    }
+  ],
+  "demandSignifiers": [
+    {
+      "id": "problem-intensity",
+      "name": "Problem intensity",
+      "description": "How often and how painfully they deal with the problem: frequency, team time spent, hiring for it, public complaints about it.",
+      "weight": 10,
+      "enabled": true
+    },
+    {
+      "id": "early-adopter",
+      "name": "Early-adopter signals",
+      "description": "Tries new tools, joins betas, builds in public, or publicly reviews or gives feedback on products.",
+      "weight": 8,
+      "enabled": true
+    },
+    {
+      "id": "reachable-champion",
+      "name": "Reachable champion",
+      "description": "A specific person close to the problem who is publicly active and reachable, for example posting on LinkedIn or X or listing a public email.",
+      "weight": 8,
+      "enabled": true
+    },
+    {
+      "id": "current-workaround",
+      "name": "Current workaround",
+      "description": "Handles the problem with spreadsheets, manual work, or tools adjacent to ours, rather than a mature solution they're happy with.",
+      "weight": 6,
+      "enabled": true
+    },
+    {
+      "id": "representative",
+      "name": "Representative use case",
+      "description": "Their situation is typical of the users described in About Us, so their feedback will generalize rather than being an edge case.",
+      "weight": 5,
+      "enabled": true
+    }
+  ],
+  "tierHotMin": 80,
+  "tierWarmMin": 50,
+  "tierNurtureMin": 30
+}

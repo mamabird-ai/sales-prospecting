@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { IconBuilding, IconTrash, IconSearch, IconMessage } from "@tabler/icons-react";
-import { SelectableEntityList, SelectableRow } from "@/components/selection";
+import { SelectableEntityList, SelectableRow, countItems } from "@/components/selection";
 import type { ActionConfig } from "@/components/selection";
 import { toast } from "sonner";
 import { useSelectionStore } from "@/lib/store/selection-store";
@@ -17,7 +17,7 @@ import {
   validatePersonUserStatus,
 } from "@/lib/constants/status-config";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, type ReactNode } from "react";
 
 type PersonWithCompany = {
   id: number;
@@ -35,11 +35,14 @@ type PersonWithCompany = {
 interface PeopleListWithSelectionProps {
   groupedPeople: Record<PersonUserStatusType, PersonWithCompany[]>;
   onRefresh?: () => void;
+  /** Toolbar content shown when nothing is selected */
+  toolbar?: ReactNode;
 }
 
 export function PeopleListWithSelection({
   groupedPeople,
   onRefresh,
+  toolbar,
 }: PeopleListWithSelectionProps) {
   const clearSelection = useSelectionStore((state) => state.clearAll);
 
@@ -79,10 +82,10 @@ export function PeopleListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(`Started research for ${started} ${started > 1 ? "people" : "person"}`);
+        toast.success(`Started research for ${countItems(started, "person")}`);
       }
       if (failed > 0) {
-        toast.error(`Failed to start research for ${failed} ${failed > 1 ? "people" : "person"}`);
+        toast.error(`Couldn't start research for ${countItems(failed, "person")}`);
       }
     },
     [personMap]
@@ -118,14 +121,10 @@ export function PeopleListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(
-          `Started conversation generation for ${started} ${started > 1 ? "people" : "person"}`
-        );
+        toast.success(`Started talking points for ${countItems(started, "person")}`);
       }
       if (failed > 0) {
-        toast.error(
-          `Failed to start conversation generation for ${failed} ${failed > 1 ? "people" : "person"}`
-        );
+        toast.error(`Couldn't start talking points for ${countItems(failed, "person")}`);
       }
     },
     [personMap]
@@ -137,10 +136,10 @@ export function PeopleListWithSelection({
         const deleted = await deletePeople(selectedIds);
         clearSelection();
         onRefresh?.();
-        toast.success(`Deleted ${deleted} ${deleted > 1 ? "people" : "person"}`);
+        toast.success(`Deleted ${countItems(deleted, "person")}`);
       } catch (error) {
         console.error("Failed to delete people:", error);
-        toast.error("Failed to delete people");
+        toast.error("Couldn't delete the selected people");
       }
     },
     [clearSelection, onRefresh]
@@ -150,16 +149,23 @@ export function PeopleListWithSelection({
     () => [
       {
         id: "research",
-        label: "Run Research",
+        label: "Research",
         icon: IconSearch,
         group: "Research",
+        jobType: "person_research",
+        confirm: { title: (items) => `Research ${items}?`, actionLabel: "Start research" },
         onExecute: handleResearch,
       },
       {
         id: "conversation",
-        label: "Generate Conversation",
+        label: "Generate topics",
         icon: IconMessage,
         group: "Research",
+        jobType: "conversation",
+        confirm: {
+          title: (items) => `Generate talking points for ${items}?`,
+          actionLabel: "Generate topics",
+        },
         onExecute: handleConversation,
       },
       {
@@ -168,6 +174,11 @@ export function PeopleListWithSelection({
         icon: IconTrash,
         group: "Danger",
         destructive: true,
+        confirm: {
+          title: (items) => `Delete ${items}?`,
+          actionLabel: "Delete",
+          description: "Their research and talking points are deleted too. This can't be undone.",
+        },
         onExecute: handleDelete,
       },
     ],
@@ -183,6 +194,7 @@ export function PeopleListWithSelection({
       getItemId={(person) => person.id}
       renderRow={(person) => <PersonRow person={person} />}
       actions={actions}
+      toolbar={toolbar}
     />
   );
 }

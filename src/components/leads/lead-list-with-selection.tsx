@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Link } from "react-router-dom";
 import { IconChevronRight, IconSearch, IconTrash, IconChartBar } from "@tabler/icons-react";
-import { SelectableEntityList, SelectableRow } from "@/components/selection";
+import { SelectableEntityList, SelectableRow, countItems } from "@/components/selection";
 import type { ActionConfig } from "@/components/selection";
 import { ScoreBars } from "@/components/leads/score-bars";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
@@ -31,9 +31,15 @@ type LeadWithScore = {
 interface LeadListWithSelectionProps {
   groupedLeads: Record<string, LeadWithScore[]>;
   onRefresh?: () => void;
+  /** Toolbar content shown when nothing is selected */
+  toolbar?: React.ReactNode;
 }
 
-export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithSelectionProps) {
+export function LeadListWithSelection({
+  groupedLeads,
+  onRefresh,
+  toolbar,
+}: LeadListWithSelectionProps) {
   const clearSelection = useSelectionStore((state) => state.clearAll);
 
   // Create a map for quick lead name lookups
@@ -72,10 +78,10 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
       }
 
       if (started > 0) {
-        toast.success(`Started research for ${started} lead${started > 1 ? "s" : ""}`);
+        toast.success(`Started research for ${countItems(started, "lead")}`);
       }
       if (failed > 0) {
-        toast.error(`Failed to start research for ${failed} lead${failed > 1 ? "s" : ""}`);
+        toast.error(`Couldn't start research for ${countItems(failed, "lead")}`);
       }
     },
     [leadMap]
@@ -108,10 +114,10 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
       }
 
       if (started > 0) {
-        toast.success(`Started scoring for ${started} lead${started > 1 ? "s" : ""}`);
+        toast.success(`Started scoring for ${countItems(started, "lead")}`);
       }
       if (failed > 0) {
-        toast.error(`Failed to start scoring for ${failed} lead${failed > 1 ? "s" : ""}`);
+        toast.error(`Couldn't start scoring for ${countItems(failed, "lead")}`);
       }
     },
     [leadMap]
@@ -123,10 +129,10 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
         const deleted = await deleteLeads(selectedIds);
         clearSelection();
         onRefresh?.();
-        toast.success(`Deleted ${deleted} lead${deleted > 1 ? "s" : ""}`);
+        toast.success(`Deleted ${countItems(deleted, "lead")}`);
       } catch (error) {
         console.error("Failed to delete leads:", error);
-        toast.error("Failed to delete leads");
+        toast.error("Couldn't delete the selected companies");
       }
     },
     [clearSelection, onRefresh]
@@ -136,16 +142,20 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
     () => [
       {
         id: "research",
-        label: "Run Research",
+        label: "Research",
         icon: IconSearch,
         group: "Research",
+        jobType: "company_research",
+        confirm: { title: (items) => `Research ${items}?`, actionLabel: "Start research" },
         onExecute: handleResearch,
       },
       {
         id: "score",
-        label: "Score Leads",
+        label: "Score",
         icon: IconChartBar,
         group: "Research",
+        jobType: "scoring",
+        confirm: { title: (items) => `Score ${items}?`, actionLabel: "Start scoring" },
         onExecute: handleScore,
       },
       {
@@ -154,6 +164,11 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
         icon: IconTrash,
         group: "Danger",
         destructive: true,
+        confirm: {
+          title: (items) => `Delete ${items}?`,
+          actionLabel: "Delete",
+          description: "Their people and scores are deleted too. This can't be undone.",
+        },
         onExecute: handleDelete,
       },
     ],
@@ -169,6 +184,7 @@ export function LeadListWithSelection({ groupedLeads, onRefresh }: LeadListWithS
       getItemId={(lead) => lead.id}
       renderRow={(lead) => <LeadRow lead={lead} />}
       actions={actions}
+      toolbar={toolbar}
     />
   );
 }

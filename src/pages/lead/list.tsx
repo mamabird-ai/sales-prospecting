@@ -79,25 +79,31 @@ export default function LeadListPage() {
         <AddLeadModal onSuccess={refresh} />
       </header>
 
-      <div className="h-9 border-b border-white/5 flex items-center px-3 gap-2">
-        <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
-          <IconSearch className="size-3.5 mr-1" />
-          Filter
-        </Button>
-        <div className="flex-1" />
-        <div className="flex items-center gap-2 text-xs">
-          {tierCounts.hot > 0 && <span className="text-green-500">Hot: {tierCounts.hot}</span>}
-          {tierCounts.warm > 0 && <span className="text-orange-500">Warm: {tierCounts.warm}</span>}
-          {tierCounts.nurture > 0 && (
-            <span className="text-orange-400">Nurture: {tierCounts.nurture}</span>
-          )}
-          {tierCounts.disqualified > 0 && (
-            <span className="text-red-500">DQ: {tierCounts.disqualified}</span>
-          )}
-        </div>
-      </div>
-
-      <LeadListWithSelection groupedLeads={groupedLeads} onRefresh={refresh} />
+      <LeadListWithSelection
+        groupedLeads={groupedLeads}
+        onRefresh={refresh}
+        toolbar={
+          <>
+            <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
+              <IconSearch className="size-3.5 mr-1" />
+              Filter
+            </Button>
+            <div className="flex-1" />
+            <div className="flex items-center gap-2 text-xs">
+              {tierCounts.hot > 0 && <span className="text-green-500">Hot: {tierCounts.hot}</span>}
+              {tierCounts.warm > 0 && (
+                <span className="text-orange-500">Warm: {tierCounts.warm}</span>
+              )}
+              {tierCounts.nurture > 0 && (
+                <span className="text-orange-400">Nurture: {tierCounts.nurture}</span>
+              )}
+              {tierCounts.disqualified > 0 && (
+                <span className="text-red-500">DQ: {tierCounts.disqualified}</span>
+              )}
+            </div>
+          </>
+        }
+      />
     </>
   );
 }

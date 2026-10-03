@@ -74,14 +74,16 @@ export default function PeopleListPage() {
         <AddPersonModal leads={leads} onSuccess={refresh} />
       </header>
 
-      <div className="h-9 border-b border-white/5 flex items-center px-3 gap-2">
-        <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
-          <IconSearch className="size-3.5 mr-1" />
-          Filter
-        </Button>
-      </div>
-
-      <PeopleListWithSelection groupedPeople={groupedPeople} />
+      <PeopleListWithSelection
+        groupedPeople={groupedPeople}
+        onRefresh={refresh}
+        toolbar={
+          <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
+            <IconSearch className="size-3.5 mr-1" />
+            Filter
+          </Button>
+        }
+      />
     </>
   );
 }

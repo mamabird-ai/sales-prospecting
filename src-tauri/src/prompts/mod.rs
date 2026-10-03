@@ -1,3 +1,5 @@
+pub mod templates;
+
 /// Default prompts embedded at compile time from markdown files
 pub mod defaults {
     pub const COMPANY: &str = include_str!("defaults/company.md");

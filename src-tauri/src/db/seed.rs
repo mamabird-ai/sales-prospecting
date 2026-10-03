@@ -57,6 +57,30 @@ fn seed_scoring_config(conn: &Connection) -> SqliteResult<()> {
 
     let now = chrono::Utc::now().timestamp_millis();
 
+    let (required_characteristics, demand_signifiers) = default_fit_criteria();
+
+    conn.execute(
+        "INSERT INTO scoring_config (
+            name, is_active, required_characteristics, demand_signifiers,
+            tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at
+        ) VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            "default",
+            required_characteristics.to_string(),
+            demand_signifiers.to_string(),
+            80, // tier_hot_min
+            50, // tier_warm_min
+            30, // tier_nurture_min
+            now,
+            now,
+        ],
+    )?;
+
+    Ok(())
+}
+
+/// Default fit criteria for sales prospecting: (required characteristics, demand signifiers)
+pub fn default_fit_criteria() -> (serde_json::Value, serde_json::Value) {
     // Default required characteristics (pass/fail gates)
     let required_characteristics = serde_json::json!([
         {
@@ -112,22 +136,5 @@ fn seed_scoring_config(conn: &Connection) -> SqliteResult<()> {
         }
     ]);
 
-    conn.execute(
-        "INSERT INTO scoring_config (
-            name, is_active, required_characteristics, demand_signifiers,
-            tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at
-        ) VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![
-            "default",
-            required_characteristics.to_string(),
-            demand_signifiers.to_string(),
-            80, // tier_hot_min
-            50, // tier_warm_min
-            30, // tier_nurture_min
-            now,
-            now,
-        ],
-    )?;
-
-    Ok(())
+    (required_characteristics, demand_signifiers)
 }

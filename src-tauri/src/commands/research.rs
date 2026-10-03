@@ -65,8 +65,12 @@ pub async fn start_research(
     // Get prompts (with fallback to defaults)
     let (company_prompt_content, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        let cp = db::get_prompt_by_type(&conn, "company").map_err(|e| e.to_string())?;
-        let co = db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?;
+        // Use the instructions of the playbook this company belongs to
+        let playbook_id = db::lead_playbook_id(&conn, lead_id).map_err(|e| e.to_string())?;
+        let cp =
+            db::get_prompt_by_type(&conn, playbook_id, "company").map_err(|e| e.to_string())?;
+        let co = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
+            .map_err(|e| e.to_string())?;
 
         // Use DB prompt or fall back to default
         let content = cp
@@ -127,6 +131,7 @@ pub async fn start_research(
         primary_output_path: profile_path,
         secondary_output_path: Some(people_path),
         enrichment_output_path: Some(enrichment_path),
+        playbook_id: None,
     };
 
     // Clone the app handle for the callback
@@ -216,8 +221,11 @@ pub async fn start_person_research(
     // Get prompts (with fallback to defaults)
     let (person_prompt_content, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        let pp = db::get_prompt_by_type(&conn, "person").map_err(|e| e.to_string())?;
-        let co = db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?;
+        // Use the instructions of the playbook this person belongs to
+        let playbook_id = db::person_playbook_id(&conn, person_id).map_err(|e| e.to_string())?;
+        let pp = db::get_prompt_by_type(&conn, playbook_id, "person").map_err(|e| e.to_string())?;
+        let co = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
+            .map_err(|e| e.to_string())?;
 
         // Use DB prompt or fall back to default
         let content = pp
@@ -278,6 +286,7 @@ pub async fn start_person_research(
         primary_output_path: profile_path,
         secondary_output_path: None,
         enrichment_output_path: Some(enrichment_path),
+        playbook_id: None,
     };
 
     let entity_label = full_name.clone();
@@ -548,10 +557,13 @@ pub async fn start_find_leads(
     icp_description: String,
     on_event: Channel<StreamEvent>,
 ) -> Result<ResearchResult, String> {
-    // Get company overview for context
-    let company_overview = {
+    // Find leads for the playbook the user is working in, with its overview as context
+    let (playbook_id, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?
+        let playbook_id = db::active_playbook_id(&conn).map_err(|e| e.to_string())?;
+        let overview = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
+            .map_err(|e| e.to_string())?;
+        (playbook_id, overview)
     };
 
     // Set up output directory
@@ -589,6 +601,7 @@ pub async fn start_find_leads(
         primary_output_path: leads_path,
         secondary_output_path: None,
         enrichment_output_path: None,
+        playbook_id: Some(playbook_id),
     };
 
     let entity_label = format!(
@@ -715,11 +728,13 @@ pub async fn start_scoring(
     // Get active scoring config and the overview of what we're looking for
     let (config, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        let config = db::get_active_scoring_config(&conn)
+        // Score against the criteria of the playbook this company belongs to
+        let playbook_id = db::lead_playbook_id(&conn, lead_id).map_err(|e| e.to_string())?;
+        let config = db::get_active_scoring_config(&conn, playbook_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "No active scoring configuration found".to_string())?;
-        let overview =
-            db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?;
+        let overview = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
+            .map_err(|e| e.to_string())?;
         (config, overview)
     };
 
@@ -765,6 +780,7 @@ pub async fn start_scoring(
         primary_output_path: score_path,
         secondary_output_path: None,
         enrichment_output_path: None,
+        playbook_id: None,
     };
 
     let entity_label = format!("{} (Scoring)", lead.company_name);
@@ -836,8 +852,12 @@ pub async fn start_conversation_generation(
     // Get prompts (with fallback to defaults)
     let (conversation_prompt_content, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        let cp = db::get_prompt_by_type(&conn, "conversation_topics").map_err(|e| e.to_string())?;
-        let co = db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?;
+        // Use the instructions of the playbook this person belongs to
+        let playbook_id = db::person_playbook_id(&conn, person_id).map_err(|e| e.to_string())?;
+        let cp = db::get_prompt_by_type(&conn, playbook_id, "conversation_topics")
+            .map_err(|e| e.to_string())?;
+        let co = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
+            .map_err(|e| e.to_string())?;
 
         // Use DB prompt or fall back to default
         let content = cp
@@ -893,6 +913,7 @@ pub async fn start_conversation_generation(
         primary_output_path: conversation_path,
         secondary_output_path: None,
         enrichment_output_path: None,
+        playbook_id: None,
     };
 
     let entity_label = format!("{} (Conversation)", full_name);

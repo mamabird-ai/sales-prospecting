@@ -8,7 +8,9 @@ pub fn get_prompt_by_type(
     prompt_type: String,
 ) -> Result<Option<Prompt>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let db_prompt = db::get_prompt_by_type(&conn, &prompt_type).map_err(|e| e.to_string())?;
+    let playbook_id = db::active_playbook_id(&conn).map_err(|e| e.to_string())?;
+    let db_prompt =
+        db::get_prompt_by_type(&conn, playbook_id, &prompt_type).map_err(|e| e.to_string())?;
 
     // If no prompt in database, return the default (if one exists for this type)
     match db_prompt {
@@ -33,5 +35,6 @@ pub fn save_prompt_by_type(
     content: String,
 ) -> Result<i64, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::save_prompt_by_type(&conn, &prompt_type, &content).map_err(|e| e.to_string())
+    let playbook_id = db::active_playbook_id(&conn).map_err(|e| e.to_string())?;
+    db::save_prompt_by_type(&conn, playbook_id, &prompt_type, &content).map_err(|e| e.to_string())
 }

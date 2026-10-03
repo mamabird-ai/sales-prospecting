@@ -1,3 +1,4 @@
+pub mod playbooks;
 pub mod queries;
 pub mod schema;
 pub mod seed;
@@ -6,6 +7,7 @@ use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+pub use playbooks::*;
 pub use queries::*;
 pub use schema::*;
 
@@ -281,6 +283,54 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
         eprintln!("[db] Migration complete: people table updated");
     }
 
+    // Migration: playbooks. Each playbook has its own companies, people, prompts,
+    // and fit criteria. Existing data becomes the first playbook, "Sales prospects".
+    // Runs after the people rebuild above, which copies rows with SELECT *.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS playbooks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            tier_labels TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        INSERT INTO playbooks (id, name, created_at, updated_at)
+        SELECT 1, 'Sales prospects', strftime('%s', 'now'), strftime('%s', 'now')
+        WHERE NOT EXISTS (SELECT 1 FROM playbooks);
+        "#,
+    )?;
+    let table_exists = |table: &str| -> bool {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [table],
+            |row| row.get(0),
+        )
+        .unwrap_or(false)
+    };
+    for table in ["leads", "people", "prompts", "scoring_config"] {
+        if !table_exists(table) {
+            continue;
+        }
+        if !column_exists(conn, table, "playbook_id") {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN playbook_id INTEGER NOT NULL DEFAULT 1"),
+                [],
+            )?;
+        }
+        conn.execute(
+            &format!("CREATE INDEX IF NOT EXISTS idx_{table}_playbook ON {table}(playbook_id)"),
+            [],
+        )?;
+    }
+    if table_exists("settings") && !column_exists(conn, "settings", "active_playbook_id") {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN active_playbook_id INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -312,6 +362,7 @@ mod tests {
                 state: None,
                 country: None,
             },
+            1,
         )
         .unwrap();
 

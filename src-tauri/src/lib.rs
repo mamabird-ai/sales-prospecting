@@ -143,6 +143,13 @@ pub fn run() {
             // Settings commands
             commands::get_settings,
             commands::update_settings,
+            // Playbook commands
+            commands::get_playbooks,
+            commands::create_playbook,
+            commands::rename_playbook,
+            commands::update_tier_labels,
+            commands::delete_playbook,
+            commands::set_active_playbook,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

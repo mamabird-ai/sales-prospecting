@@ -389,8 +389,8 @@ impl CompletionHandler {
                             .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
                         } else {
                             tx.execute(
-                                "INSERT INTO people (first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, research_status, user_status, created_at)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'new', ?9)",
+                                "INSERT INTO people (first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, research_status, user_status, created_at, playbook_id)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'new', ?9, (SELECT playbook_id FROM leads WHERE id = ?8))",
                                 rusqlite::params![first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, now],
                             ).map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
                         }
@@ -447,8 +447,11 @@ impl CompletionHandler {
                     .query_row(
                         "SELECT id, name, is_active, required_characteristics, demand_signifiers,
                             tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at
-                     FROM scoring_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1",
-                        [],
+                     FROM scoring_config
+                     WHERE is_active = 1
+                       AND playbook_id = (SELECT playbook_id FROM leads WHERE id = ?1)
+                     ORDER BY id DESC LIMIT 1",
+                        [lead_id],
                         |row| {
                             let required_chars: String = row.get(3)?;
                             let demand_sigs: String = row.get(4)?;
@@ -580,16 +583,23 @@ impl CompletionHandler {
             }
             ParsedOutput::LeadFinder { leads } => {
                 let now = chrono::Utc::now().timestamp();
+                // Jobs started before playbooks existed have no playbook; use the active one
+                let playbook_id = match metadata.playbook_id {
+                    Some(id) => id,
+                    None => db::active_playbook_id(tx)
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?,
+                };
 
                 // Collect existing companies so repeat runs don't add duplicates
                 let mut seen_names = HashSet::new();
                 let mut seen_domains = HashSet::new();
                 {
                     let mut stmt = tx
-                        .prepare("SELECT company_name, website FROM leads")
+                        // The same company may appear in different playbooks
+                        .prepare("SELECT company_name, website FROM leads WHERE playbook_id = ?1")
                         .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
                     let rows = stmt
-                        .query_map([], |row| {
+                        .query_map([playbook_id], |row| {
                             Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
                         })
                         .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
@@ -633,9 +643,9 @@ impl CompletionHandler {
                     let industry = lead_data.get("industry").and_then(|v| v.as_str());
 
                     tx.execute(
-                        "INSERT INTO leads (company_name, website, city, state, country, industry, research_status, user_status, created_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7)",
-                        rusqlite::params![company_name, website, city, state, country, industry, now],
+                        "INSERT INTO leads (company_name, website, city, state, country, industry, research_status, user_status, created_at, playbook_id)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7, ?8)",
+                        rusqlite::params![company_name, website, city, state, country, industry, now, playbook_id],
                     ).map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
 
                     let lead_id = tx.last_insert_rowid();

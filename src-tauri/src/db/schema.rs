@@ -238,3 +238,49 @@ pub struct Settings {
     pub use_chrome: bool,
     pub updated_at: i64,
 }
+
+// ============================================================================
+// Playbooks
+// ============================================================================
+
+/// Display names for the four scoring tiers. The stored tier values stay
+/// hot/warm/nurture/disqualified; only the labels change per playbook.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TierLabels {
+    pub hot: String,
+    pub warm: String,
+    pub nurture: String,
+    pub disqualified: String,
+}
+
+impl Default for TierLabels {
+    fn default() -> Self {
+        Self {
+            hot: "Hot".to_string(),
+            warm: "Warm".to_string(),
+            nurture: "Nurture".to_string(),
+            disqualified: "Disqualified".to_string(),
+        }
+    }
+}
+
+/// A separate set of companies, people, research instructions, and fit
+/// criteria for one goal, such as sales prospecting or finding design partners
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Playbook {
+    pub id: i64,
+    pub name: String,
+    pub tier_labels: TierLabels,
+    pub lead_count: i64,
+    pub person_count: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybooksState {
+    pub playbooks: Vec<Playbook>,
+    pub active_id: i64,
+}

@@ -3,6 +3,7 @@ import type {
   ClaudeStreamEvent,
   ClaudeContentBlock,
   ClaudeToolResultBlock,
+  ClaudeRateLimitEvent,
 } from "@/lib/types/claude";
 
 const MAX_TOOL_RESULT_LENGTH = 500;
@@ -354,6 +355,56 @@ function parseResultEvent(event: ClaudeStreamEvent, timestamp: number): LogEntry
   return entries;
 }
 
+// Share of a usage window at which a warning is shown
+const RATE_LIMIT_WARNING_UTILIZATION = 0.8;
+
+const RATE_LIMIT_WINDOW_LABELS: Record<string, string> = {
+  five_hour: "5-hour",
+  seven_day: "weekly",
+};
+
+function formatResetTime(resetsAt: number | undefined): string {
+  if (!resetsAt) return "";
+  const date = new Date(resetsAt * 1000);
+  return ` (resets ${date.toLocaleString(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  })})`;
+}
+
+/**
+ * Usage-limit status updates are routine, so stay silent unless the request
+ * was blocked or a usage window is nearly used up
+ */
+function parseRateLimitEvent(event: ClaudeRateLimitEvent, timestamp: number): LogEntry | null {
+  const info = event.rate_limit_info;
+  if (!info) return null;
+
+  if (info.status && info.status !== "allowed") {
+    const window = RATE_LIMIT_WINDOW_LABELS[info.rateLimitType ?? ""] ?? "usage";
+    return {
+      type: "error",
+      content: `Claude ${window} limit reached${formatResetTime(info.resetsAt)}`,
+      timestamp,
+    };
+  }
+
+  const nearLimit = Object.entries(info.unifiedWindows ?? {})
+    .filter(([, w]) => (w.utilization ?? 0) >= RATE_LIMIT_WARNING_UTILIZATION)
+    .map(
+      ([name, w]) =>
+        `${RATE_LIMIT_WINDOW_LABELS[name] ?? name} ${Math.round((w.utilization ?? 0) * 100)}% used${formatResetTime(w.resetsAt)}`
+    );
+  if (nearLimit.length === 0) return null;
+
+  return {
+    type: "info",
+    content: `Approaching Claude usage limit: ${nearLimit.join(", ")}`,
+    timestamp,
+  };
+}
+
 /**
  * Parse a single JSON line from Claude's streaming output
  */
@@ -422,6 +473,12 @@ export function parseStreamJsonEvent(line: string): LogEntry[] {
           timestamp,
         });
         break;
+
+      case "rate_limit_event": {
+        const entry = parseRateLimitEvent(event, timestamp);
+        if (entry) entries.push(entry);
+        break;
+      }
 
       case "error":
         entries.push({

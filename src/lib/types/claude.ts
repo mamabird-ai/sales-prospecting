@@ -227,6 +227,22 @@ interface ClaudeBrowserEvent {
   message?: unknown;
 }
 
+// Usage-limit status the CLI reports during a session
+export interface ClaudeRateLimitWindow {
+  utilization?: number; // 0-1 fraction of the window used
+  resetsAt?: number; // Unix seconds
+}
+
+export interface ClaudeRateLimitEvent {
+  type: "rate_limit_event";
+  rate_limit_info?: {
+    status?: string; // "allowed" when the request may proceed
+    resetsAt?: number;
+    rateLimitType?: string;
+    unifiedWindows?: Record<string, ClaudeRateLimitWindow>;
+  };
+}
+
 // Union type of all stream events
 export type ClaudeStreamEvent =
   | ClaudeSystemInitEvent
@@ -241,4 +257,5 @@ export type ClaudeStreamEvent =
   | ClaudeContentBlockDeltaEvent
   | ClaudeErrorEvent
   | ClaudeToolResultEvent
-  | ClaudeBrowserEvent;
+  | ClaudeBrowserEvent
+  | ClaudeRateLimitEvent;

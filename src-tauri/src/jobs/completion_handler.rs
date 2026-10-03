@@ -10,6 +10,7 @@
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -579,12 +580,51 @@ impl CompletionHandler {
             }
             ParsedOutput::LeadFinder { leads } => {
                 let now = chrono::Utc::now().timestamp();
+
+                // Collect existing companies so repeat runs don't add duplicates
+                let mut seen_names = HashSet::new();
+                let mut seen_domains = HashSet::new();
+                {
+                    let mut stmt = tx
+                        .prepare("SELECT company_name, website FROM leads")
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                    let rows = stmt
+                        .query_map([], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                        })
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                    for row in rows {
+                        let (name, website) =
+                            row.map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                        if let Some(key) = normalize_company_name(&name) {
+                            seen_names.insert(key);
+                        }
+                        if let Some(domain) = website.as_deref().and_then(normalize_domain) {
+                            seen_domains.insert(domain);
+                        }
+                    }
+                }
+
+                let mut skipped = 0;
                 for lead_data in leads {
                     let company_name = lead_data
                         .get("companyName")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Unknown");
                     let website = lead_data.get("website").and_then(|v| v.as_str());
+
+                    let name_key = normalize_company_name(company_name);
+                    let domain_key = website.and_then(normalize_domain);
+                    let is_duplicate = name_key.as_ref().is_some_and(|k| seen_names.contains(k))
+                        || domain_key.as_ref().is_some_and(|d| seen_domains.contains(d));
+                    if is_duplicate {
+                        skipped += 1;
+                        continue;
+                    }
+                    // Also dedupe within this batch
+                    seen_names.extend(name_key);
+                    seen_domains.extend(domain_key);
+
                     let city = lead_data.get("city").and_then(|v| v.as_str());
                     let state = lead_data.get("state").and_then(|v| v.as_str());
                     let country = lead_data.get("country").and_then(|v| v.as_str());
@@ -599,6 +639,12 @@ impl CompletionHandler {
                     let lead_id = tx.last_insert_rowid();
                     // Emit lead-created event so frontend updates incrementally
                     events::emit_lead_created(&self.app_handle, lead_id);
+                }
+                if skipped > 0 {
+                    eprintln!(
+                        "[completion_handler] Lead finder skipped {} duplicate companies",
+                        skipped
+                    );
                 }
             }
         }
@@ -732,5 +778,91 @@ fn extract_last_name(p: &serde_json::Value) -> String {
         parts.get(1..).unwrap_or(&[]).join(" ")
     } else {
         String::new()
+    }
+}
+
+/// Hosts that point at a profile page rather than the company's own site,
+/// so they can't be used to tell companies apart
+const SHARED_HOSTS: &[&str] = &[
+    "linkedin.com",
+    "crunchbase.com",
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "github.com",
+];
+
+/// Reduce a website URL to its bare domain for duplicate detection,
+/// e.g. "https://www.Acme.com/about" -> "acme.com"
+fn normalize_domain(website: &str) -> Option<String> {
+    let lower = website.trim().to_lowercase();
+    let without_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+        .unwrap_or(&lower);
+    let host = without_scheme
+        .split(['/', '?', '#', ':'])
+        .next()
+        .unwrap_or("");
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    if host.is_empty() || SHARED_HOSTS.contains(&host) {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+/// Reduce a company name to a comparison key that ignores case, punctuation
+/// and legal suffixes, e.g. "Acme, Inc." -> "acme"
+fn normalize_company_name(name: &str) -> Option<String> {
+    const SUFFIXES: &[&str] = &[
+        "inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "gmbh",
+    ];
+    let cleaned: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let mut words: Vec<&str> = cleaned.split_whitespace().collect();
+    while words.len() > 1 && words.last().is_some_and(|w| SUFFIXES.contains(w)) {
+        words.pop();
+    }
+    let key = words.concat();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::{normalize_company_name, normalize_domain};
+
+    #[test]
+    fn domains_ignore_scheme_www_path_and_case() {
+        assert_eq!(normalize_domain("https://www.Acme.com/about"), Some("acme.com".into()));
+        assert_eq!(normalize_domain("acme.com"), Some("acme.com".into()));
+        assert_eq!(normalize_domain("http://acme.com:8080?x=1"), Some("acme.com".into()));
+        assert_eq!(normalize_domain(""), None);
+    }
+
+    #[test]
+    fn shared_profile_hosts_are_not_used_as_keys() {
+        assert_eq!(normalize_domain("https://www.linkedin.com/company/acme"), None);
+    }
+
+    #[test]
+    fn company_names_ignore_case_punctuation_and_suffixes() {
+        assert_eq!(normalize_company_name("Acme, Inc."), Some("acme".into()));
+        assert_eq!(normalize_company_name("ACME LLC"), Some("acme".into()));
+        assert_eq!(normalize_company_name("Acme"), Some("acme".into()));
+        assert_eq!(
+            normalize_company_name("Blue Sky Co"),
+            normalize_company_name("BlueSky")
+        );
+        // A name that is only a suffix is kept rather than emptied
+        assert_eq!(normalize_company_name("Co"), Some("co".into()));
+        assert_eq!(normalize_company_name("  "), None);
     }
 }

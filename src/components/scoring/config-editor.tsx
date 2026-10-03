@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconDeviceFloppy, IconLoader2, IconPlus, IconTrash } from "@tabler/icons-react";
 import { toast } from "sonner";
-import { saveScoringConfig } from "@/lib/tauri/commands";
+import { saveScoringConfig, updateTierLabels } from "@/lib/tauri/commands";
+import { applyPlaybooksState } from "@/lib/hooks/use-playbooks";
+import type { ScoringTier, TierLabels } from "@/lib/tauri/types";
 import type {
   RequiredCharacteristic,
   DemandSignifier,
@@ -18,10 +20,13 @@ interface ScoringConfigEditorProps {
     createdAt: string | null;
     updatedAt: string | null;
   };
+  playbookId: number;
+  tierLabels: TierLabels;
 }
 
-export function ScoringConfigEditor({ seed }: ScoringConfigEditorProps) {
+export function ScoringConfigEditor({ seed, playbookId, tierLabels }: ScoringConfigEditorProps) {
   const [config, setConfig] = useState(() => seed);
+  const [labels, setLabels] = useState(() => tierLabels);
   const [isPending, startTransition] = useTransition();
   const [isSaving, setIsSaving] = useState(false);
 
@@ -42,9 +47,16 @@ export function ScoringConfigEditor({ seed }: ScoringConfigEditorProps) {
         if (newId && !config.id) {
           setConfig((prev) => ({ ...prev, id: newId }));
         }
-        toast.success("Configuration saved");
+        // Tier names belong to the playbook rather than the criteria record
+        const labelsChanged = (Object.keys(labels) as ScoringTier[]).some(
+          (tier) => labels[tier] !== tierLabels[tier]
+        );
+        if (labelsChanged) {
+          applyPlaybooksState(await updateTierLabels(playbookId, labels));
+        }
+        toast.success("Fit criteria saved");
       } catch (error) {
-        toast.error("Failed to save configuration", {
+        toast.error("Couldn't save fit criteria", {
           description: error instanceof Error ? error.message : "An unexpected error occurred",
         });
       } finally {
@@ -70,7 +82,9 @@ export function ScoringConfigEditor({ seed }: ScoringConfigEditorProps) {
           hotMin={config.tierHotMin}
           warmMin={config.tierWarmMin}
           nurtureMin={config.tierNurtureMin}
+          labels={labels}
           onChange={(field, value) => setConfig((prev) => ({ ...prev, [field]: value }))}
+          onLabelChange={(tier, value) => setLabels((prev) => ({ ...prev, [tier]: value }))}
         />
 
         <div className="flex items-center gap-3 pt-4 border-t border-white/5">
@@ -80,7 +94,7 @@ export function ScoringConfigEditor({ seed }: ScoringConfigEditorProps) {
             ) : (
               <IconDeviceFloppy className="size-4" />
             )}
-            {isPending || isSaving ? "Saving…" : "Save Configuration"}
+            {isPending || isSaving ? "Saving…" : "Save fit criteria"}
           </Button>
         </div>
       </div>
@@ -270,82 +284,124 @@ function TierThresholdsSection({
   hotMin,
   warmMin,
   nurtureMin,
+  labels,
   onChange,
+  onLabelChange,
 }: {
   hotMin: number;
   warmMin: number;
   nurtureMin: number;
+  labels: TierLabels;
   onChange: (field: TierField, value: number) => void;
+  onLabelChange: (tier: ScoringTier, value: string) => void;
 }) {
   return (
     <section>
       <div className="mb-3">
-        <h2 className="text-sm font-medium">Tier Thresholds</h2>
+        <h2 className="text-sm font-medium">Tiers</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Minimum scores for each tier classification
+          Name each tier and set the minimum score for it. Names show up wherever scores do.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <TierInput
-          id="tier-hot-min"
-          label="Hot (Min)"
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <TierCard
+          tier="hot"
           dotColor="bg-green-500"
-          value={hotMin}
-          onChange={(v) => onChange("tierHotMin", v)}
+          label={labels.hot}
+          onLabelChange={onLabelChange}
+          threshold={{
+            id: "tier-hot-min",
+            value: hotMin,
+            onChange: (v) => onChange("tierHotMin", v),
+          }}
         />
-        <TierInput
-          id="tier-warm-min"
-          label="Warm (Min)"
+        <TierCard
+          tier="warm"
           dotColor="bg-yellow-500"
-          value={warmMin}
-          onChange={(v) => onChange("tierWarmMin", v)}
+          label={labels.warm}
+          onLabelChange={onLabelChange}
+          threshold={{
+            id: "tier-warm-min",
+            value: warmMin,
+            onChange: (v) => onChange("tierWarmMin", v),
+          }}
         />
-        <TierInput
-          id="tier-nurture-min"
-          label="Nurture (Min)"
+        <TierCard
+          tier="nurture"
           dotColor="bg-blue-500"
-          value={nurtureMin}
-          onChange={(v) => onChange("tierNurtureMin", v)}
+          label={labels.nurture}
+          onLabelChange={onLabelChange}
+          threshold={{
+            id: "tier-nurture-min",
+            value: nurtureMin,
+            onChange: (v) => onChange("tierNurtureMin", v),
+          }}
+        />
+        <TierCard
+          tier="disqualified"
+          dotColor="bg-red-500"
+          label={labels.disqualified}
+          onLabelChange={onLabelChange}
+          note={`Below ${nurtureMin}, or fails a required characteristic`}
         />
       </div>
-      <p className="text-xs text-muted-foreground mt-2">
-        Leads below {nurtureMin} will be classified as Disqualified
-      </p>
     </section>
   );
 }
 
-function TierInput({
-  id,
-  label,
+const TIER_NAME_DESCRIPTIONS: Record<ScoringTier, string> = {
+  hot: "Name of the top tier",
+  warm: "Name of the second tier",
+  nurture: "Name of the third tier",
+  disqualified: "Name of the lowest tier",
+};
+
+function TierCard({
+  tier,
   dotColor,
-  value,
-  onChange,
+  label,
+  onLabelChange,
+  threshold,
+  note,
 }: {
-  id: string;
-  label: string;
+  tier: ScoringTier;
   dotColor: string;
-  value: number;
-  onChange: (value: number) => void;
+  label: string;
+  onLabelChange: (tier: ScoringTier, value: string) => void;
+  threshold?: { id: string; value: number; onChange: (value: number) => void };
+  note?: string;
 }) {
   return (
-    <div className="p-3 border border-white/5 rounded-lg">
-      <div className="flex items-center gap-2 mb-2">
-        <div className={`size-2 rounded-full ${dotColor}`} />
-        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
-          {label}
-        </label>
+    <div className="p-3 border border-white/5 rounded-lg space-y-2">
+      <div className="flex items-center gap-2">
+        <div className={`size-2 shrink-0 rounded-full ${dotColor}`} />
+        <Input
+          aria-label={TIER_NAME_DESCRIPTIONS[tier]}
+          value={label}
+          maxLength={30}
+          onChange={(e) => onLabelChange(tier, e.target.value)}
+          className="h-7 text-xs font-medium bg-transparent border-white/10"
+        />
       </div>
-      <Input
-        id={id}
-        type="number"
-        min={0}
-        max={100}
-        value={value}
-        onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-        className="h-8 text-sm bg-transparent border-white/10"
-      />
+      {threshold ? (
+        <div className="space-y-1">
+          <label htmlFor={threshold.id} className="block text-[11px] text-muted-foreground">
+            Minimum score
+          </label>
+          <Input
+            id={threshold.id}
+            type="number"
+            min={0}
+            max={100}
+            value={threshold.value}
+            onChange={(e) => threshold.onChange(parseInt(e.target.value) || 0)}
+            className="h-8 text-sm bg-transparent border-white/10"
+          />
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">{note}</p>
+      )}
     </div>
   );
 }

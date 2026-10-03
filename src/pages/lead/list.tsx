@@ -5,6 +5,7 @@ import { FindLeadsModal } from "@/components/leads/find-leads-modal";
 import { LeadListWithSelection } from "@/components/leads/lead-list-with-selection";
 import { useLeadsWithScores } from "@/lib/hooks/use-leads";
 import type { LeadWithScore } from "@/lib/tauri/types";
+import { useTierLabels } from "@/lib/hooks/use-playbooks";
 
 // Helper to group leads by user status
 function groupByUserStatus(leads: LeadWithScore[]) {
@@ -55,6 +56,7 @@ export default function LeadListPage() {
 
   const groupedLeads = groupByUserStatus(leads);
   const tierCounts = getTierCounts(leads);
+  const tierLabels = useTierLabels();
 
   if (isLoading && leads.length === 0) {
     return (
@@ -90,15 +92,25 @@ export default function LeadListPage() {
             </Button>
             <div className="flex-1" />
             <div className="flex items-center gap-2 text-xs">
-              {tierCounts.hot > 0 && <span className="text-green-500">Hot: {tierCounts.hot}</span>}
+              {tierCounts.hot > 0 && (
+                <span className="text-green-500">
+                  {tierLabels.hot}: {tierCounts.hot}
+                </span>
+              )}
               {tierCounts.warm > 0 && (
-                <span className="text-orange-500">Warm: {tierCounts.warm}</span>
+                <span className="text-orange-500">
+                  {tierLabels.warm}: {tierCounts.warm}
+                </span>
               )}
               {tierCounts.nurture > 0 && (
-                <span className="text-orange-400">Nurture: {tierCounts.nurture}</span>
+                <span className="text-orange-400">
+                  {tierLabels.nurture}: {tierCounts.nurture}
+                </span>
               )}
               {tierCounts.disqualified > 0 && (
-                <span className="text-red-500">DQ: {tierCounts.disqualified}</span>
+                <span className="text-red-500">
+                  {tierLabels.disqualified}: {tierCounts.disqualified}
+                </span>
               )}
             </div>
           </>

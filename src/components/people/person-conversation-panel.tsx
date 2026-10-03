@@ -8,6 +8,7 @@ import { IconPlayerPlay, IconFileText } from "@tabler/icons-react";
 import { startConversationGeneration } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 
 interface PersonConversationPanelProps {
   personId: number;
@@ -32,7 +33,7 @@ export function PersonConversationPanel({
       // Logs stream directly via Channel callback for real-time display
       const result = await startConversationGeneration(personId, handleStreamEvent);
 
-      toast.success(`Started conversation generation for ${personName}`);
+      toastJobStarted(`Started talking points for ${personName}`, result.jobId);
       return result;
     }).catch((error) => {
       console.error("Failed to start conversation generation:", error);

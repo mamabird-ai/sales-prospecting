@@ -136,15 +136,17 @@ export async function initializeEventBridge(): Promise<void> {
   });
   unlisteners.push(personDeletedUnlisten);
 
-  // Job created → set active tab, open panel, invalidate jobs query
+  // Job created → select its tab (without opening the panel), invalidate jobs queries
   const jobCreatedUnlisten = await listen<JobCreatedPayload>("job-created", (event) => {
     const { jobId } = event.payload;
 
     const store = useStreamPanelStore.getState();
 
-    // Set this job as active and open the panel
-    store.setActiveTab(jobId);
-    store.setOpen(true);
+    // Don't open the panel or switch away from a tab the user is reading; the
+    // sidebar progress card shows the job and opens the panel on request
+    if (!store.isOpen || !store.activeTabId) {
+      store.setActiveTab(jobId);
+    }
 
     // Invalidate jobs queries so the new job appears in the tab list and progress
     queryClient.invalidateQueries({ queryKey: queryKeys.jobsRecent(50) });

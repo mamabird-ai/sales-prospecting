@@ -22,6 +22,7 @@ import { ScoreBreakdown } from "@/components/leads/score-breakdown";
 import { useIsJobActive } from "@/lib/hooks/use-stream-tabs";
 import { useJobSubmission } from "@/lib/hooks/use-job-submission";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 import { startScoring, startResearch } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 
@@ -53,7 +54,7 @@ export function LeadResearchPanel({
       // Logs stream directly via Channel callback for real-time display
       const result = await startResearch(lead.id, handleStreamEvent);
 
-      toast.success(`Started research for ${lead.companyName}`);
+      toastJobStarted(`Started research for ${lead.companyName}`, result.jobId);
       return result;
     }).catch((error) => {
       console.error("Failed to start research:", error);
@@ -67,7 +68,7 @@ export function LeadResearchPanel({
       // Logs stream directly via Channel callback for real-time display
       const result = await startScoring(lead.id, handleStreamEvent);
 
-      toast.success(`Started scoring for ${lead.companyName}`);
+      toastJobStarted(`Started scoring for ${lead.companyName}`, result.jobId);
       return result;
     }).catch((error) => {
       console.error("Failed to start scoring:", error);

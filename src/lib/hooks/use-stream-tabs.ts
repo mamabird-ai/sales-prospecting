@@ -57,6 +57,7 @@ export function useStreamTabs(limit: number = 50) {
   const { data: jobs = [], isLoading, error } = useRecentJobs(limit);
   const isHydrated = useStreamPanelStore((s) => s.isHydrated);
   const hydrateAll = useStreamPanelStore((s) => s.hydrateAll);
+  const dismissedJobIds = useStreamPanelStore((s) => s.dismissedJobIds);
 
   // Hydrate all job logs on mount (once)
   useEffect(() => {
@@ -90,8 +91,12 @@ export function useStreamTabs(limit: number = 50) {
   }, [jobs, isHydrated, hydrateAll]);
 
   const tabs = useMemo(() => {
-    return jobs.map(mapJobToTab).sort((a, b) => a.createdAt - b.createdAt);
-  }, [jobs]);
+    const dismissed = new Set(dismissedJobIds);
+    return jobs
+      .filter((job) => !dismissed.has(job.id))
+      .map(mapJobToTab)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }, [jobs, dismissedJobIds]);
 
   return {
     tabs,

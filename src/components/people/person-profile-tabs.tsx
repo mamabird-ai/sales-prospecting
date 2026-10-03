@@ -9,6 +9,7 @@ import { useIsJobActive } from "@/lib/hooks/use-stream-tabs";
 import { startPersonResearch, startConversationGeneration } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 
 interface PersonProfileTabsProps {
   personId: number;
@@ -33,9 +34,9 @@ export function PersonProfileTabs({
     try {
       // Start research - backend will emit events
       // Stream logs to Zustand via handleStreamEvent
-      await startPersonResearch(personId, handleStreamEvent);
+      const result = await startPersonResearch(personId, handleStreamEvent);
 
-      toast.success(`Started research for ${personName}`);
+      toastJobStarted(`Started research for ${personName}`, result.jobId);
     } catch (error) {
       console.error("Failed to start research:", error);
       toast.error("Failed to start research");
@@ -46,9 +47,9 @@ export function PersonProfileTabs({
     try {
       // Start conversation - backend will emit events
       // Stream logs to Zustand via handleStreamEvent
-      await startConversationGeneration(personId, handleStreamEvent);
+      const result = await startConversationGeneration(personId, handleStreamEvent);
 
-      toast.success(`Started conversation generation for ${personName}`);
+      toastJobStarted(`Started talking points for ${personName}`, result.jobId);
     } catch (error) {
       console.error("Failed to start conversation generation:", error);
       toast.error("Failed to start conversation generation");

@@ -6,6 +6,7 @@ import type { ActionConfig } from "@/components/selection";
 import { ScoreBars } from "@/components/leads/score-bars";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 import { useSelectionStore } from "@/lib/store/selection-store";
 import { deleteLeads, startResearch, startScoring } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
@@ -78,7 +79,7 @@ export function LeadListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(`Started research for ${countItems(started, "lead")}`);
+        toastJobStarted(`Started research for ${countItems(started, "lead")}`);
       }
       if (failed > 0) {
         toast.error(`Couldn't start research for ${countItems(failed, "lead")}`);
@@ -114,7 +115,7 @@ export function LeadListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(`Started scoring for ${countItems(started, "lead")}`);
+        toastJobStarted(`Started scoring for ${countItems(started, "lead")}`);
       }
       if (failed > 0) {
         toast.error(`Couldn't start scoring for ${countItems(failed, "lead")}`);

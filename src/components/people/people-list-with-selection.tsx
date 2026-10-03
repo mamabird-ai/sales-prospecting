@@ -3,6 +3,7 @@ import { IconBuilding, IconTrash, IconSearch, IconMessage } from "@tabler/icons-
 import { SelectableEntityList, SelectableRow, countItems } from "@/components/selection";
 import type { ActionConfig } from "@/components/selection";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 import { useSelectionStore } from "@/lib/store/selection-store";
 import {
   deletePeople,
@@ -82,7 +83,7 @@ export function PeopleListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(`Started research for ${countItems(started, "person")}`);
+        toastJobStarted(`Started research for ${countItems(started, "person")}`);
       }
       if (failed > 0) {
         toast.error(`Couldn't start research for ${countItems(failed, "person")}`);
@@ -121,7 +122,7 @@ export function PeopleListWithSelection({
       }
 
       if (started > 0) {
-        toast.success(`Started talking points for ${countItems(started, "person")}`);
+        toastJobStarted(`Started talking points for ${countItems(started, "person")}`);
       }
       if (failed > 0) {
         toast.error(`Couldn't start talking points for ${countItems(failed, "person")}`);

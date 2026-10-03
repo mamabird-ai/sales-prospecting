@@ -8,6 +8,7 @@ import { IconPlayerPlay, IconFileText } from "@tabler/icons-react";
 import { startPersonResearch } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
 
 interface PersonResearchPanelProps {
   personId: number;
@@ -32,7 +33,7 @@ export function PersonResearchPanel({
       // Logs stream directly via Channel callback for real-time display
       const result = await startPersonResearch(personId, handleStreamEvent);
 
-      toast.success(`Started research for ${personName}`);
+      toastJobStarted(`Started research for ${personName}`, result.jobId);
       return result;
     }).catch((error) => {
       console.error("Failed to start research:", error);

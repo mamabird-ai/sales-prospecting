@@ -4,6 +4,7 @@ import modelConfig from "./claude-models.json";
 
 const EXPECTED_SUPPORTED_MODELS = [
   "claude-fable-5",
+  "claude-opus-5-5",
   "claude-opus-4-8",
   "claude-sonnet-5",
   "claude-haiku-4-5",

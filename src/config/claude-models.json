@@ -8,6 +8,12 @@
       "description": "Highest capability for long-running agentic work"
     },
     {
+      "value": "claude-opus-5-5",
+      "label": "Claude Opus 5.5",
+      "icon": "brain",
+      "description": "Latest Opus for deep research and complex reasoning"
+    },
+    {
       "value": "claude-opus-4-8",
       "label": "Claude Opus 4.8",
       "icon": "brain",

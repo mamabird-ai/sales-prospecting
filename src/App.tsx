@@ -24,7 +24,7 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background bg-terminal-pattern">
+      <div className="flex h-screen items-center justify-center bg-background">
         <IconLoader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -33,7 +33,7 @@ function AppContent() {
   return (
     <>
       <CompanyOverviewDialog hasCompanyOverview={onboardingStatus?.hasCompanyOverview ?? false} />
-      <div className="flex h-screen bg-background bg-terminal-pattern font-sans antialiased">
+      <div className="flex h-screen bg-background font-sans antialiased">
         <Sidebar />
         <StreamPanelWrapper>
           <Suspense

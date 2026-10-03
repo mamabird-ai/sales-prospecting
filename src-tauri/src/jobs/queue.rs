@@ -445,18 +445,34 @@ impl JobQueue {
 
             // Build arguments using settings
             // Note: prompt must be last as it's a positional argument
+            //
+            // Jobs read untrusted web content, so permissions are scoped instead of skipped:
+            // file edits are auto-accepted only inside working_dir (the job's output folder),
+            // web tools are pre-approved, and shell access is denied. Anything else is
+            // denied automatically because print mode cannot prompt.
             let mut args = vec![
                 "-p".to_string(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),
                 "--verbose".to_string(),
-                "--dangerously-skip-permissions".to_string(),
+                "--permission-mode".to_string(),
+                "acceptEdits".to_string(),
+                "--disallowedTools".to_string(),
+                "Bash".to_string(),
             ];
+
+            let mut allowed_tools = vec!["WebSearch", "WebFetch"];
 
             // Add --chrome flag if enabled in settings
             if settings.use_chrome {
                 args.push("--chrome".to_string());
+                allowed_tools.push("mcp__claude-in-chrome");
             }
+
+            // Variadic flag: must be followed by another option (--model) so it
+            // does not consume the positional prompt
+            args.push("--allowedTools".to_string());
+            args.push(allowed_tools.join(","));
 
             // Add model from settings
             args.push("--model".to_string());

@@ -118,10 +118,8 @@ pub async fn start_research(
         timestamp: chrono::Utc::now().timestamp_millis(),
     });
 
-    // Start job with callback
-    let working_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
+    // Run the job inside its own output folder: Claude may only edit files here
+    let working_dir = lead_dir.to_string_lossy().to_string();
 
     let metadata = JobMetadata {
         job_type: JobType::CompanyResearch,
@@ -271,10 +269,8 @@ pub async fn start_person_research(
         timestamp: chrono::Utc::now().timestamp_millis(),
     });
 
-    // Start job with callback
-    let working_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
+    // Run the job inside its own output folder: Claude may only edit files here
+    let working_dir = person_dir.to_string_lossy().to_string();
 
     let metadata = JobMetadata {
         job_type: JobType::PersonResearch,
@@ -584,10 +580,8 @@ pub async fn start_find_leads(
         timestamp: chrono::Utc::now().timestamp_millis(),
     });
 
-    // Start job
-    let working_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
+    // Run the job inside its own output folder: Claude may only edit files here
+    let working_dir = output_dir.to_string_lossy().to_string();
 
     let metadata = JobMetadata {
         job_type: JobType::LeadFinder,
@@ -753,10 +747,8 @@ pub async fn start_scoring(
         timestamp: chrono::Utc::now().timestamp_millis(),
     });
 
-    // Start job with callback
-    let working_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
+    // Run the job inside its own output folder: Claude may only edit files here
+    let working_dir = output_dir.to_string_lossy().to_string();
 
     let metadata = JobMetadata {
         job_type: JobType::Scoring,
@@ -883,10 +875,8 @@ pub async fn start_conversation_generation(
         timestamp: chrono::Utc::now().timestamp_millis(),
     });
 
-    // Start job with callback
-    let working_dir = std::env::current_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| ".".to_string());
+    // Run the job inside its own output folder: Claude may only edit files here
+    let working_dir = output_dir.to_string_lossy().to_string();
 
     let metadata = JobMetadata {
         job_type: JobType::Conversation,

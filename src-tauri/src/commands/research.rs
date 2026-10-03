@@ -712,12 +712,15 @@ pub async fn start_scoring(
         (l, p)
     };
 
-    // Get active scoring config
-    let config = {
+    // Get active scoring config and the overview of what we're looking for
+    let (config, company_overview) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
-        db::get_active_scoring_config(&conn)
+        let config = db::get_active_scoring_config(&conn)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| "No active scoring configuration found".to_string())?
+            .ok_or_else(|| "No active scoring configuration found".to_string())?;
+        let overview =
+            db::get_prompt_by_type(&conn, "company_overview").map_err(|e| e.to_string())?;
+        (config, overview)
     };
 
     // Set up output directory
@@ -737,7 +740,13 @@ pub async fn start_scoring(
     let score_path = output_dir.join(format!("score_{}_{}.json", lead_id, company_slug));
 
     // Build scoring prompt
-    let full_prompt = build_scoring_prompt(&lead, &people, &config, &score_path);
+    let full_prompt = build_scoring_prompt(
+        &lead,
+        &people,
+        &config,
+        &score_path,
+        company_overview.as_ref().map(|p| p.content.as_str()),
+    );
 
     // Send initial event (job_id is "pending" as actual job hasn't been created yet)
     let _ = on_event.send(StreamEvent {
@@ -920,7 +929,13 @@ fn build_scoring_prompt(
     people: &[db::Person],
     config: &db::ParsedScoringConfig,
     output_path: &std::path::Path,
+    company_overview: Option<&str>,
 ) -> String {
+    // Criteria like "has the problem we solve" can only be judged knowing who "we" are
+    let about_us = company_overview
+        .map(|overview| format!("# About Us\n\n{}\n\n---\n\n", overview))
+        .unwrap_or_default();
+
     // Parse required characteristics and demand signifiers from JSON
     let required_chars: Vec<serde_json::Value> = config
         .required_characteristics
@@ -1035,7 +1050,7 @@ fn build_scoring_prompt(
     };
 
     format!(
-        r#"You are a lead scoring analyst. Your task is to evaluate the following company as a sales lead and provide a detailed scoring assessment.
+        r#"{about_us}Evaluate the following company against the criteria below and provide a detailed scoring assessment. Judge fit against what "About Us" says we are looking for, if provided.
 
 COMPANY INFORMATION:
 {lead_context}

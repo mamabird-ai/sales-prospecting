@@ -8,6 +8,8 @@ import {
 } from "@tabler/icons-react";
 import { ModelSelector } from "./model-selector";
 import { ChromeToggle } from "./chrome-toggle";
+import { JobProgress } from "./job-progress";
+import { UsageMeter } from "./usage-meter";
 import { OnboardingChecklist } from "@/components/onboarding/onboarding-checklist";
 import { useOnboardingStatus } from "@/lib/query";
 
@@ -75,6 +77,8 @@ export function Sidebar() {
       </nav>
 
       <div className="p-2 border-t border-white/5 space-y-1">
+        <JobProgress />
+        <UsageMeter />
         <div className="px-2 py-1 text-muted-foreground text-[11px] uppercase tracking-wider font-medium">
           Settings
         </div>

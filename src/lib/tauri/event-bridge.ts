@@ -146,8 +146,9 @@ export async function initializeEventBridge(): Promise<void> {
     store.setActiveTab(jobId);
     store.setOpen(true);
 
-    // Invalidate jobs query so the new job appears in the tab list
+    // Invalidate jobs queries so the new job appears in the tab list and progress
     queryClient.invalidateQueries({ queryKey: queryKeys.jobsRecent(50) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.jobsActive() });
   });
   unlisteners.push(jobCreatedUnlisten);
 

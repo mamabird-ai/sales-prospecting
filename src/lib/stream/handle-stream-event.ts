@@ -1,5 +1,6 @@
 import { useStreamPanelStore } from "@/lib/store/stream-panel-store";
 import { parseStreamJsonEvent } from "@/lib/stream/stream-parser";
+import { captureUsageFromStreamLine } from "@/lib/store/usage-store";
 import type { StreamEvent } from "@/lib/tauri/types";
 import type { ClientLogEntry } from "@/lib/types/claude";
 
@@ -15,6 +16,8 @@ export function handleStreamEvent(event: StreamEvent): void {
   if (!jobId || jobId === "pending") {
     return;
   }
+
+  captureUsageFromStreamLine(content);
 
   // Try to parse, fallback to raw
   const parsed = parseStreamJsonEvent(content);

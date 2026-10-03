@@ -61,3 +61,6 @@ src-tauri/Cargo.lock
 
 # local
 .local/
+
+# Claude Code per-user settings
+.claude/settings.local.json

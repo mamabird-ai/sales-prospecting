@@ -11,6 +11,8 @@ use tauri::AppHandle;
 /// Maximum age (in seconds) for a job to be considered "running" before it's stale.
 /// Jobs older than this are assumed to have died without proper cleanup.
 const STALE_JOB_THRESHOLD_SECS: i64 = 600; // 10 minutes
+/// Finished jobs older than this are deleted on startup; recent ones feed time estimates
+const JOB_HISTORY_RETENTION_DAYS: i64 = 30;
 
 /// Result of stale job detection
 #[derive(Debug, serde::Serialize)]
@@ -261,6 +263,14 @@ pub fn recover_on_startup(conn: &Arc<Mutex<Connection>>, app: &AppHandle) {
     match recover_stuck_entities(&conn_guard, app) {
         Ok(count) if count > 0 => eprintln!("[recovery] Recovered {} stuck entities", count),
         Err(e) => eprintln!("[recovery] Failed to recover stuck entities: {}", e),
+        _ => {}
+    }
+
+    // Prune old job history and logs. Closing a tab in the Activity panel only
+    // hides it, so this is what keeps the jobs tables from growing forever.
+    match crate::db::cleanup_old_jobs(&conn_guard, JOB_HISTORY_RETENTION_DAYS) {
+        Ok(count) if count > 0 => eprintln!("[recovery] Pruned {} old jobs", count),
+        Err(e) => eprintln!("[recovery] Failed to prune old jobs: {}", e),
         _ => {}
     }
 

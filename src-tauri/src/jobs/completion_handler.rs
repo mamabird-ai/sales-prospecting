@@ -616,7 +616,9 @@ impl CompletionHandler {
                     let name_key = normalize_company_name(company_name);
                     let domain_key = website.and_then(normalize_domain);
                     let is_duplicate = name_key.as_ref().is_some_and(|k| seen_names.contains(k))
-                        || domain_key.as_ref().is_some_and(|d| seen_domains.contains(d));
+                        || domain_key
+                            .as_ref()
+                            .is_some_and(|d| seen_domains.contains(d));
                     if is_duplicate {
                         skipped += 1;
                         continue;
@@ -816,7 +818,16 @@ fn normalize_domain(website: &str) -> Option<String> {
 /// and legal suffixes, e.g. "Acme, Inc." -> "acme"
 fn normalize_company_name(name: &str) -> Option<String> {
     const SUFFIXES: &[&str] = &[
-        "inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "gmbh",
+        "inc",
+        "llc",
+        "ltd",
+        "limited",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "plc",
+        "gmbh",
     ];
     let cleaned: String = name
         .to_lowercase()
@@ -841,15 +852,24 @@ mod dedupe_tests {
 
     #[test]
     fn domains_ignore_scheme_www_path_and_case() {
-        assert_eq!(normalize_domain("https://www.Acme.com/about"), Some("acme.com".into()));
+        assert_eq!(
+            normalize_domain("https://www.Acme.com/about"),
+            Some("acme.com".into())
+        );
         assert_eq!(normalize_domain("acme.com"), Some("acme.com".into()));
-        assert_eq!(normalize_domain("http://acme.com:8080?x=1"), Some("acme.com".into()));
+        assert_eq!(
+            normalize_domain("http://acme.com:8080?x=1"),
+            Some("acme.com".into())
+        );
         assert_eq!(normalize_domain(""), None);
     }
 
     #[test]
     fn shared_profile_hosts_are_not_used_as_keys() {
-        assert_eq!(normalize_domain("https://www.linkedin.com/company/acme"), None);
+        assert_eq!(
+            normalize_domain("https://www.linkedin.com/company/acme"),
+            None
+        );
     }
 
     #[test]

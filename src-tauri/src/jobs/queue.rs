@@ -23,8 +23,8 @@ pub enum EntityType {
 }
 
 /// Context for entity status rollback on job failure
-/// This allows us to reset entity status when jobs fail during queue timeout,
-/// cancellation, or other early termination scenarios
+/// This allows us to reset entity status when jobs end early
+/// through cancellation or other early termination scenarios
 #[derive(Debug, Clone)]
 pub struct EntityContext {
     pub entity_type: EntityType,
@@ -36,7 +36,6 @@ pub struct EntityContext {
 // Configuration
 const MAX_CONCURRENT_JOBS: usize = 5;
 const JOB_TIMEOUT_SECS: u64 = 600; // 10 minutes
-const QUEUE_TIMEOUT_SECS: u64 = 30;
 const GRACEFUL_SHUTDOWN_SECS: u64 = 2; // Time to wait for graceful SIGTERM shutdown
 const STREAM_DRAIN_TIMEOUT_SECS: u64 = 5; // Time to wait for stream tasks to complete
 
@@ -245,7 +244,6 @@ impl JobQueue {
     /// Settings (model, use_chrome) are read from the database at job execution time.
     ///
     /// If `entity_context` is provided, the entity's status will be reset on:
-    /// - Queue timeout (semaphore acquisition fails after 30s)
     /// - Job cancellation before running
     /// - Any error before job starts
     #[allow(clippy::too_many_arguments)]
@@ -365,7 +363,7 @@ impl JobQueue {
                     );
                 };
 
-            // Try to acquire semaphore with queue timeout
+            // Wait for a free slot (no timeout: queued jobs run in submission order until cancelled)
             let permit = tokio::select! {
                 permit = semaphore.acquire_owned() => {
                     match permit {
@@ -387,23 +385,6 @@ impl JobQueue {
                             return;
                         }
                     }
-                }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(QUEUE_TIMEOUT_SECS)) => {
-                    let _ = on_event.send(StreamEvent {
-                        job_id: job_id_clone.clone(),
-                        event_type: "error".to_string(),
-                        content: "Queue timeout - server busy".to_string(),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                    });
-                    active_jobs.lock().await.remove(&job_id_clone);
-                    // Reset entity status on queue timeout
-                    if let Some(ref ctx) = entity_context {
-                        db_reset_entity_status(&db_conn, ctx, &app_clone);
-                    }
-                    update_job_status("error", None, Some("Queue timeout - server busy"));
-                    job_guard.defuse(); // Cleanup handled manually
-                    on_complete(metadata, String::new(), false);
-                    return;
                 }
                 _ = cancel_rx.recv() => {
                     let _ = on_event.send(StreamEvent {
@@ -762,7 +743,7 @@ fn db_update_job_pid(conn: &Arc<std::sync::Mutex<rusqlite::Connection>>, job_id:
     }
 }
 
-/// Reset entity status when job fails early (queue timeout, cancellation, etc.)
+/// Reset entity status when job fails early (cancellation, spawn failure, etc.)
 fn db_reset_entity_status(
     conn: &Arc<std::sync::Mutex<rusqlite::Connection>>,
     entity_ctx: &EntityContext,

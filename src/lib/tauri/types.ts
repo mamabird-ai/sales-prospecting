@@ -256,3 +256,27 @@ export interface JobLog {
   sequence: number;
   source: "stdout" | "stderr" | "internal";
 }
+
+// ============================================================================
+// Playbook Types
+// ============================================================================
+
+/** Display names for the scoring tiers; stored tier values never change */
+export type TierLabels = Record<ScoringTier, string>;
+
+export interface Playbook {
+  id: number;
+  name: string;
+  tierLabels: TierLabels;
+  leadCount: number;
+  personCount: number;
+  createdAt: number;
+}
+
+export interface PlaybooksState {
+  playbooks: Playbook[];
+  activeId: number;
+}
+
+/** Where a new playbook's instructions and fit criteria come from */
+export type PlaybookSource = "design_partners" | "sales" | "copy";

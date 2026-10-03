@@ -60,10 +60,10 @@ export function CompanyOverviewDialog({ hasCompanyOverview }: CompanyOverviewDia
         className="sm:max-w-md"
       >
         <DialogHeader>
-          <DialogTitle>Tell us about your company</DialogTitle>
+          <DialogTitle>Tell us what you&apos;re building</DialogTitle>
           <DialogDescription>
-            Before you begin, describe what your company does. This helps tailor research and
-            qualification to your business.
+            Before you begin, describe what you&apos;re building and who you&apos;re looking for.
+            Every research job in this playbook uses it. You can change it anytime in About you.
           </DialogDescription>
         </DialogHeader>
 

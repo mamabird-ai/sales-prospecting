@@ -16,6 +16,7 @@ const LeadListPage = lazy(() => import("@/pages/lead/list"));
 const LeadDetailPage = lazy(() => import("@/pages/lead/detail"));
 const PeopleListPage = lazy(() => import("@/pages/people/list"));
 const PersonDetailPage = lazy(() => import("@/pages/people/detail"));
+const AboutPage = lazy(() => import("@/pages/about"));
 const PromptPage = lazy(() => import("@/pages/prompt"));
 const ScoringPage = lazy(() => import("@/pages/scoring"));
 
@@ -49,6 +50,7 @@ function AppContent() {
               <Route path="/lead/:id" element={<LeadDetailPage />} />
               <Route path="/people" element={<PeopleListPage />} />
               <Route path="/people/:id" element={<PersonDetailPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/prompt" element={<PromptPage />} />
               <Route path="/scoring" element={<ScoringPage />} />
             </Routes>

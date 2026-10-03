@@ -5,9 +5,9 @@ import {
   IconLoader2,
   IconBuilding,
   IconUser,
-  IconInfoCircle,
   IconMessageCircle,
 } from "@tabler/icons-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { savePromptByType } from "@/lib/tauri/commands";
 import type { PromptType } from "@/lib/tauri/types";
@@ -17,8 +17,11 @@ interface PromptEditorProps {
   prompts: PromptContents;
 }
 
+/** The company overview has its own page (About you), so it isn't a tab here */
+type InstructionType = Exclude<PromptType, "company_overview">;
+
 export function PromptEditor({ prompts }: PromptEditorProps) {
-  const [activeTab, setActiveTab] = useState<PromptType>("company_overview");
+  const [activeTab, setActiveTab] = useState<InstructionType>("company");
   const [contents, setContents] = useState<PromptContents>(() => prompts);
   const [isPending, startTransition] = useTransition();
   const [isSaving, setIsSaving] = useState(false);
@@ -34,9 +37,9 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
     startTransition(async () => {
       try {
         await savePromptByType(activeTab, currentContent);
-        toast.success("Prompt saved");
+        toast.success("Instructions saved");
       } catch (error) {
-        toast.error("Failed to save prompt", {
+        toast.error("Couldn't save instructions", {
           description: error instanceof Error ? error.message : "An unexpected error occurred",
         });
       } finally {
@@ -46,10 +49,9 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
   };
 
   const tabs = [
-    { id: "company_overview" as const, label: "Company Overview", icon: IconInfoCircle },
-    { id: "company" as const, label: "Company", icon: IconBuilding },
-    { id: "person" as const, label: "Person", icon: IconUser },
-    { id: "conversation_topics" as const, label: "Conversation", icon: IconMessageCircle },
+    { id: "company" as const, label: "Company research", icon: IconBuilding },
+    { id: "person" as const, label: "Person research", icon: IconUser },
+    { id: "conversation_topics" as const, label: "Outreach", icon: IconMessageCircle },
   ];
 
   return (
@@ -80,22 +82,17 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
       <div className="flex-1 overflow-auto p-4">
         <div className="max-w-3xl">
           <div className="text-sm text-muted-foreground mb-4 space-y-1">
-            {activeTab === "company_overview" && (
-              <>
-                <p>
-                  Describe your company and ideal customer profile. This context is injected into{" "}
-                  <strong>all</strong> research prompts.
-                </p>
-                <p className="text-xs text-muted-foreground/70">
-                  Tip: Include what you do, who you sell to, problems you solve, and key
-                  differentiators.
-                </p>
-              </>
-            )}
+            <p className="text-xs text-muted-foreground/70">
+              Every job also reads your{" "}
+              <Link to="/about" className="underline underline-offset-2 hover:text-foreground">
+                About you
+              </Link>{" "}
+              description.
+            </p>
             {activeTab === "company" && (
               <>
                 <p>
-                  Instructions for comapny research. The target company&apos;s details are{" "}
+                  Instructions for company research. The target company&apos;s details are{" "}
                   <strong>automatically provided</strong>.
                 </p>
                 <p className="text-xs text-muted-foreground/70">
@@ -119,8 +116,9 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
             {activeTab === "conversation_topics" && (
               <>
                 <p>
-                  Instructions for generating conversation prep. The person&apos;s profile and
-                  company info are <strong>automatically provided</strong>.
+                  Instructions for outreach: talking points and messages, written when you click
+                  Generate topics. The person&apos;s profile and company info are{" "}
+                  <strong>automatically provided</strong>.
                 </p>
                 <p className="text-xs text-muted-foreground/70">
                   Auto-injected: Person details, company details. Focus on what call prep to
@@ -135,11 +133,9 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
               value={currentContent}
               onChange={(e) => setCurrentContent(e.target.value)}
               placeholder={
-                activeTab === "company_overview"
-                  ? "Enter details about your business, products, services, target customers, value proposition, etc..."
-                  : activeTab === "conversation_topics"
-                    ? "Enter your conversation topics prompt template..."
-                    : `Enter your ${activeTab} research prompt template...`
+                activeTab === "conversation_topics"
+                  ? "What should outreach include and how should it sound?"
+                  : `What should ${activeTab} research find out?`
               }
               className="w-full h-96 bg-white/5 border border-white/5 p-3 text-xs font-mono resize-none rounded focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
@@ -154,14 +150,12 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
                 {isPending || isSaving
                   ? "Saving..."
                   : `Save ${
-                      activeTab === "company_overview"
-                        ? "Company Overview"
-                        : activeTab === "company"
-                          ? "Company Prompt"
-                          : activeTab === "person"
-                            ? "Person Prompt"
-                            : "Conversation Prompt"
-                    }`}
+                      activeTab === "company"
+                        ? "company research"
+                        : activeTab === "person"
+                          ? "person research"
+                          : "outreach"
+                    } instructions`}
               </Button>
             </div>
           </div>

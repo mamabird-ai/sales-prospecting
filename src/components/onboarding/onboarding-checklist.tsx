@@ -15,7 +15,7 @@ const STEPS_CONFIG: Omit<OnboardingStepData, "isCompleted">[] = [
     id: "create-lead",
     title: "Create lead",
     description:
-      "Go to Companies and add a company you want to qualify. You can import from CSV or add manually.",
+      "Go to Companies and add one yourself, or use Find Leads to discover companies that match what you're looking for.",
   },
   {
     id: "start-research",
@@ -25,8 +25,7 @@ const STEPS_CONFIG: Omit<OnboardingStepData, "isCompleted">[] = [
   {
     id: "score-lead",
     title: "Score lead",
-    description:
-      "Set up your scoring criteria on the Scoring page, then score leads to prioritize them as hot, warm, or nurture.",
+    description: "Set your Fit criteria, then score companies to see which ones fit best.",
   },
   {
     id: "research-person",

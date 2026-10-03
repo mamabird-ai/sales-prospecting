@@ -16,6 +16,9 @@ import type {
   OnboardingStatus,
   Job,
   JobLog,
+  PlaybooksState,
+  PlaybookSource,
+  TierLabels,
 } from "./types";
 
 // ============================================================================
@@ -279,4 +282,35 @@ export async function getSettings(): Promise<Settings> {
 
 export async function updateSettings(model: string, useChrome: boolean): Promise<void> {
   return invoke("update_settings", { model, useChrome });
+}
+
+// ============================================================================
+// Playbook Commands
+// ============================================================================
+
+export async function getPlaybooks(): Promise<PlaybooksState> {
+  return invoke("get_playbooks");
+}
+
+export async function createPlaybook(
+  name: string,
+  source: PlaybookSource
+): Promise<PlaybooksState> {
+  return invoke("create_playbook", { name, source });
+}
+
+export async function renamePlaybook(id: number, name: string): Promise<PlaybooksState> {
+  return invoke("rename_playbook", { id, name });
+}
+
+export async function updateTierLabels(id: number, labels: TierLabels): Promise<PlaybooksState> {
+  return invoke("update_tier_labels", { id, labels });
+}
+
+export async function deletePlaybook(id: number): Promise<PlaybooksState> {
+  return invoke("delete_playbook", { id });
+}
+
+export async function setActivePlaybook(id: number): Promise<PlaybooksState> {
+  return invoke("set_active_playbook", { id });
 }

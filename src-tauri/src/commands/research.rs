@@ -665,12 +665,13 @@ pub async fn start_find_people(
         }
     };
 
-    let (playbook_id, company_overview) = {
+    let (playbook_id, company_overview, already_found) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
         let playbook_id = db::active_playbook_id(&conn).map_err(|e| e.to_string())?;
         let overview = db::get_prompt_by_type(&conn, playbook_id, "company_overview")
             .map_err(|e| e.to_string())?;
-        (playbook_id, overview)
+        let already_found = people_already_found(&conn, playbook_id).map_err(|e| e.to_string())?;
+        (playbook_id, overview, already_found)
     };
 
     let output_dir = app
@@ -688,6 +689,7 @@ pub async fn start_find_people(
     let full_prompt = build_find_people_prompt(
         &description,
         focus,
+        &already_found,
         &people_path,
         company_overview.as_ref().map(|p| p.content.as_str()),
     );
@@ -771,9 +773,39 @@ impl SearchFocus {
     }
 }
 
+/// Most names to list in a prompt; beyond this the list costs more than the
+/// re-finds it prevents, and duplicates are still skipped when saving
+const MAX_ALREADY_FOUND: usize = 300;
+
+/// "Jane Doe (Acme)" for everyone already in the playbook, newest first
+fn people_already_found(
+    conn: &rusqlite::Connection,
+    playbook_id: i64,
+) -> rusqlite::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT p.first_name, p.last_name, l.company_name
+         FROM people p LEFT JOIN leads l ON l.id = p.lead_id
+         WHERE p.playbook_id = ?1
+         ORDER BY p.created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(
+        rusqlite::params![playbook_id, MAX_ALREADY_FOUND as i64],
+        |row| {
+            let name = format!("{} {}", row.get::<_, String>(0)?, row.get::<_, String>(1)?);
+            Ok(match row.get::<_, Option<String>>(2)? {
+                Some(company) => format!("{name} ({company})"),
+                None => name,
+            })
+        },
+    )?;
+    rows.collect()
+}
+
 fn build_find_people_prompt(
     description: &str,
     focus: Option<SearchFocus>,
+    already_found: &[String],
     output_path: &std::path::Path,
     company_overview: Option<&str>,
 ) -> String {
@@ -785,12 +817,24 @@ fn build_find_people_prompt(
         Some(focus) => format!("\n## Where to look\n{}\n", focus.instructions()),
         None => String::new(),
     };
+    let skip_list = if already_found.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n## Already found: skip these\nThese people are already on our list from earlier searches. Do not include them, and do not spend searches on them. Find new people instead.\n{}\n",
+            already_found
+                .iter()
+                .map(|person| format!("- {person}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
     prompt.push_str(&format!(
         r#"# Task: Find People Who Match a Description
 
 ## Who we're looking for
 {description}
-{where_to_look}
+{where_to_look}{skip_list}
 ## Goal
 Find 15-25 real individuals. Volume matters more than certainty: include good candidates even when some details can't be confirmed, and say what's unconfirmed.
 
@@ -841,6 +885,7 @@ Fields:
 IMPORTANT: Write ONLY valid JSON to the output file. No markdown, no explanation, just the JSON array."#,
         description = description,
         where_to_look = where_to_look,
+        skip_list = skip_list,
         output_path = output_path.display(),
     ));
     prompt
@@ -1566,6 +1611,7 @@ mod find_people_tests {
         let prompt = build_find_people_prompt(
             "PMs who run betas",
             Some(SearchFocus::Startups),
+            &[],
             Path::new("/tmp/people.json"),
             Some("We build Mamabird"),
         );
@@ -1573,8 +1619,17 @@ mod find_people_tests {
         assert!(prompt.contains("Find 15-25 real individuals"));
         assert!(prompt.contains("\"fit\": \"strong\""));
         assert!(prompt.starts_with("# About Us"));
-        let unfocused = build_find_people_prompt("x", None, Path::new("/tmp/p.json"), None);
+        let unfocused = build_find_people_prompt("x", None, &[], Path::new("/tmp/p.json"), None);
         assert!(!unfocused.contains("## Where to look"));
+        assert!(!unfocused.contains("## Already found"));
+    }
+
+    #[test]
+    fn prompt_lists_people_already_found_so_they_are_skipped() {
+        let found = vec!["Jo Schmo (Acme)".to_string(), "Ann Lee".to_string()];
+        let prompt = build_find_people_prompt("x", None, &found, Path::new("/tmp/p.json"), None);
+        assert!(prompt.contains("## Already found: skip these"));
+        assert!(prompt.contains("- Jo Schmo (Acme)\n- Ann Lee"));
     }
 
     #[test]

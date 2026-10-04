@@ -54,6 +54,12 @@ const STAGES = ["Idea", "Prototype", "Private beta", "Launched", "Growing"];
 /** Where a field's current text came from, until the user edits or saves it */
 type FillSource = "drafted" | "pasted";
 
+/** The fields a website draft can fill; goal and notes depend on the user */
+const DRAFTABLE: FieldKey[] = ["company", "product", "problem", "stage", "customer", "notFit"];
+
+/** A draft only fills fields that are empty or still hold template text */
+const canDraftInto = (value: string) => !value.trim() || hasPlaceholder(value);
+
 const GOALS = [
   "Customers to sell to",
   "Design partners who'll try the product and give feedback",
@@ -137,7 +143,7 @@ function CompanyForm({ initial }: { initial: string }) {
       };
       // Only fill what's empty or still template text; never overwrite the user's words
       const keys = (Object.keys(filled) as FieldKey[]).filter(
-        (key) => filled[key] && (!profile[key].trim() || hasPlaceholder(profile[key]))
+        (key) => filled[key] && canDraftInto(profile[key])
       );
       setProfile((prev) => ({
         ...prev,
@@ -146,7 +152,10 @@ function CompanyForm({ initial }: { initial: string }) {
       setFilled(new Map(keys.map((key) => [key, "drafted" as const])));
       if (keys.length > 0) {
         toast.success(`Filled in ${keys.length} ${keys.length === 1 ? "field" : "fields"}`, {
-          description: "Check the ones marked Drafted, then save.",
+          description:
+            writtenCount > 0
+              ? "Check the ones marked Drafted, then save. Fields with your own text weren't changed."
+              : "Check the ones marked Drafted, then save.",
         });
       } else {
         toast.info("Nothing to fill in", {
@@ -223,6 +232,16 @@ function CompanyForm({ initial }: { initial: string }) {
       description: "Check the ones marked Pasted, then save.",
     });
   };
+
+  const openCount = DRAFTABLE.filter((key) => canDraftInto(profile[key])).length;
+  const writtenCount = DRAFTABLE.length - openCount;
+  const fieldsWord = (n: number) => `${n} ${n === 1 ? "field" : "fields"}`;
+  const draftNote =
+    writtenCount === 0
+      ? "Claude reads your site and fills in the fields below. Nothing is saved until you review it."
+      : openCount === 0
+        ? "Every field is filled in, so there's nothing to fill. Clear a field if you want Claude to draft it."
+        : `Fills only the ${fieldsWord(openCount)} that ${openCount === 1 ? "is" : "are"} empty. Never changes what you've written: the ${fieldsWord(writtenCount)} with your text stay as they are.`;
 
   const field = (key: FieldKey) => ({
     label: FIELDS[key].label,
@@ -311,9 +330,7 @@ function CompanyForm({ initial }: { initial: string }) {
             </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
-            {drafting
-              ? "Usually takes under a minute. You can keep editing meanwhile."
-              : "Claude reads your site and fills in the empty fields below. You review before saving."}
+            {drafting ? "Usually takes under a minute. You can keep editing meanwhile." : draftNote}
           </p>
         </div>
 

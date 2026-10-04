@@ -11,7 +11,7 @@ bun run tauri:dev
 # Build production app
 bun run tauri:build
 
-# Frontend only (Vite dev server on localhost:3000)
+# Frontend only (Vite dev server on localhost:1420)
 bun run dev
 
 # Lint and format

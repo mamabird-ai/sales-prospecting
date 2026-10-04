@@ -55,7 +55,7 @@ src-tauri/src/               # Rust backend
 │   ├── research.rs          # Job management (research, scoring)
 │   └── prompts.rs           # Prompt storage
 ├── db/                      # SQLite schema and queries
-├── jobs/                    # Async job queue (5 concurrent, 10min timeout)
+├── jobs/                    # Async job queue (5 concurrent, 10-15 min timeouts)
 └── events.rs                # Event emission to frontend
 ```
 
@@ -72,7 +72,8 @@ src-tauri/src/               # Rust backend
 Research/scoring jobs spawn Claude CLI subprocesses:
 
 - Max 5 concurrent jobs (semaphore-based)
-- 10-minute timeout per job
+- 10-minute timeout per job (15 for Find Leads and Find people, which keep partial results)
+- Claude runs without shell access or sub-agents (`--disallowedTools Bash,Agent,Task`)
 - Output streams to frontend via Tauri channels
 - Results parsed and stored in SQLite on completion
 

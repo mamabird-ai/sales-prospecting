@@ -284,13 +284,41 @@ impl CompletionHandler {
         // Update completion state: started
         self.update_completion_state(&ctx.job_id, CompletionPhase::Started);
 
-        // If job failed, mark entity as failed and return early
+        // If job failed, mark entity as failed and return early. Finders save
+        // as they go, so whatever they wrote before stopping is still useful.
         if !ctx.success {
+            let finder = matches!(
+                metadata.job_type,
+                JobType::LeadFinder | JobType::PeopleFinder
+            );
+            if finder && metadata.primary_output_path.exists() {
+                match self.import_outputs(ctx, metadata) {
+                    Ok(()) => eprintln!(
+                        "[completion_handler] job_id={} Imported partial results after the job stopped",
+                        ctx.job_id
+                    ),
+                    Err(e) => eprintln!(
+                        "[completion_handler] job_id={} Partial results couldn't be read: {}",
+                        ctx.job_id, e
+                    ),
+                }
+            }
             self.mark_entity_failed(metadata);
             self.update_completion_state(&ctx.job_id, CompletionPhase::Failed);
             return Ok(());
         }
 
+        self.import_outputs(ctx, metadata)?;
+        self.update_completion_state(&ctx.job_id, CompletionPhase::Completed);
+        Ok(())
+    }
+
+    /// Read, store, and clean up a job's output files, then notify the UI
+    fn import_outputs(
+        &self,
+        ctx: &CompletionContext,
+        metadata: &JobMetadata,
+    ) -> Result<(), CompletionError> {
         // Phase 1: Verify output files
         let outputs = self.verify_output_files(metadata)?;
         self.update_completion_state(&ctx.job_id, CompletionPhase::FilesVerified);
@@ -307,10 +335,8 @@ impl CompletionHandler {
         self.cleanup_files(metadata)?;
         self.update_completion_state(&ctx.job_id, CompletionPhase::FilesCleanedUp);
 
-        // Phase 5: Emit events and mark complete
+        // Phase 5: Emit events
         self.emit_completion_events(metadata);
-        self.update_completion_state(&ctx.job_id, CompletionPhase::Completed);
-
         Ok(())
     }
 

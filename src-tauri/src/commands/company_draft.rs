@@ -136,7 +136,7 @@ pub async fn draft_company_profile(
             "--permission-mode",
             "dontAsk",
             "--disallowedTools",
-            "Bash,Write,Edit",
+            "Bash,Write,Edit,Agent,Task",
             "--allowedTools",
             "WebFetch,WebSearch",
             "--model",

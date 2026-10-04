@@ -36,6 +36,94 @@ pub struct EntityContext {
 // Configuration
 const MAX_CONCURRENT_JOBS: usize = 5;
 const JOB_TIMEOUT_SECS: u64 = 600; // 10 minutes
+/// Find Leads and Find people search widely, so they get longer
+const FINDER_TIMEOUT_SECS: u64 = 900; // 15 minutes
+
+/// Spending cap for Find Leads and Find people. Left alone, a broad search
+/// can run 80+ searches; the jobs save as they go, so a capped run still
+/// leaves its results behind.
+const FINDER_BUDGET_USD: &str = "2.00";
+
+fn job_timeout_secs(job_type: super::result_parser::JobType) -> u64 {
+    use super::result_parser::JobType;
+    match job_type {
+        JobType::LeadFinder | JobType::PeopleFinder => FINDER_TIMEOUT_SECS,
+        _ => JOB_TIMEOUT_SECS,
+    }
+}
+
+/// Spending cap and time limit for the step that writes down a stopped
+/// finder's results
+const SAVE_RESULTS_BUDGET_USD: &str = "0.75";
+const SAVE_RESULTS_TIMEOUT_SECS: u64 = 120;
+
+/// Resume a finder's Claude session, with web tools off, and have it write
+/// what it already found to the output file. Returns whether the file exists.
+async fn save_finder_results(
+    claude_path: &str,
+    model: &str,
+    session_id: &str,
+    job_type: super::result_parser::JobType,
+    output_path: &std::path::Path,
+    working_dir: &str,
+) -> bool {
+    let what = match job_type {
+        super::result_parser::JobType::PeopleFinder => "people",
+        _ => "companies",
+    };
+    let prompt = format!(
+        "Stop searching now. Write the {what} you have already found, from the searches above, \
+         to {} as a JSON array in the format the task described. Include only {what} you found \
+         evidence for. Then stop.",
+        output_path.display()
+    );
+    let child = Command::new(claude_path)
+        .args([
+            "-p",
+            "--resume",
+            session_id,
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "acceptEdits",
+            "--disallowedTools",
+            "Bash,Agent,Task,WebSearch,WebFetch",
+            "--max-budget-usd",
+            SAVE_RESULTS_BUDGET_USD,
+            "--model",
+            model,
+            &prompt,
+        ])
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let Ok(child) = child else {
+        return false;
+    };
+    let _ = tokio::time::timeout(
+        Duration::from_secs(SAVE_RESULTS_TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
+    .await;
+    output_path.exists()
+}
+
+/// A plain-language outcome for the Activity panel and job history
+fn describe_outcome(status: &str, exit_code: Option<i32>, timeout_secs: u64) -> String {
+    match (status, exit_code) {
+        ("completed", _) => "Finished".to_string(),
+        ("timeout", _) => format!(
+            "Stopped after {} minutes, the time limit for this kind of job. Anything it had saved was kept.",
+            timeout_secs / 60
+        ),
+        ("cancelled", _) => "Stopped".to_string(),
+        (_, Some(code)) => format!("Claude stopped with an error (exit code {code}). See the log above."),
+        _ => "Claude stopped unexpectedly. See the log above.".to_string(),
+    }
+}
 const GRACEFUL_SHUTDOWN_SECS: u64 = 2; // Time to wait for graceful SIGTERM shutdown
 const STREAM_DRAIN_TIMEOUT_SECS: u64 = 5; // Time to wait for stream tasks to complete
 
@@ -440,10 +528,21 @@ impl JobQueue {
                 "--permission-mode".to_string(),
                 "acceptEdits".to_string(),
                 "--disallowedTools".to_string(),
-                "Bash".to_string(),
+                // No shell, and no sub-agents: they multiply cost and time, and a
+                // job that hands off its work can run out the clock without saving
+                "Bash,Agent,Task".to_string(),
             ];
 
             let mut allowed_tools = vec!["WebSearch", "WebFetch"];
+
+            if matches!(
+                metadata.job_type,
+                super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder
+            ) {
+                args.push("--max-budget-usd".to_string());
+                args.push(FINDER_BUDGET_USD.to_string());
+            }
 
             // Add --chrome flag if enabled in settings
             if settings.use_chrome {
@@ -563,7 +662,8 @@ impl JobQueue {
             });
 
             // Wait for completion with timeout
-            let result = tokio::select! {
+            let timeout_secs = job_timeout_secs(metadata.job_type);
+            let mut result = tokio::select! {
                 status = child.wait() => {
                     match status {
                         Ok(s) => {
@@ -581,8 +681,8 @@ impl JobQueue {
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(JOB_TIMEOUT_SECS)) => {
-                    eprintln!("[job_queue] job_id={} Job timeout after {} seconds", job_id_clone, JOB_TIMEOUT_SECS);
+                _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => {
+                    eprintln!("[job_queue] job_id={} Job timeout after {} seconds", job_id_clone, timeout_secs);
                     graceful_shutdown(child, &job_id_clone).await;
                     ("timeout".to_string(), None, false)
                 }
@@ -619,12 +719,54 @@ impl JobQueue {
                 );
             }
 
+            // A finder that stopped at its time or spending limit before saving
+            // still has everything it found in its session: resume it once to
+            // write that down rather than losing the run
+            let is_finder = matches!(
+                metadata.job_type,
+                super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder
+            );
+            if is_finder && result.0 != "cancelled" && !metadata.primary_output_path.exists() {
+                let session_id = db_conn.lock().ok().and_then(|conn| {
+                    crate::db::get_job(&conn, &job_id_clone)
+                        .ok()
+                        .flatten()
+                        .and_then(|job| job.claude_session_id)
+                });
+                if let Some(session_id) = session_id {
+                    let _ = on_event.send(StreamEvent {
+                        job_id: job_id_clone.clone(),
+                        event_type: "info".to_string(),
+                        content: "Stopped before saving. Writing down what was found so far…"
+                            .to_string(),
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    });
+                    let saved = save_finder_results(
+                        &claude_path,
+                        &settings.model,
+                        &session_id,
+                        metadata.job_type,
+                        &metadata.primary_output_path,
+                        &working_dir,
+                    )
+                    .await;
+                    eprintln!(
+                        "[job_queue] job_id={} Saved results after stopping: {}",
+                        job_id_clone, saved
+                    );
+                    if saved {
+                        result = ("completed".to_string(), Some(0), true);
+                    }
+                }
+            }
+
             // Finalize stream processor and get completion context
             let completion_ctx = stream_processor.finalize(result.2, result.1).await;
 
             // Update job status in database
             let error_msg = if !result.2 {
-                Some(format!("Job {} with code {:?}", result.0, result.1))
+                Some(describe_outcome(&result.0, result.1, timeout_secs))
             } else {
                 None
             };
@@ -634,7 +776,7 @@ impl JobQueue {
             if let Err(e) = on_event.send(StreamEvent {
                 job_id: job_id_clone.clone(),
                 event_type: result.0.clone(),
-                content: format!("Job {} with code {:?}", result.0, result.1),
+                content: describe_outcome(&result.0, result.1, timeout_secs),
                 timestamp: chrono::Utc::now().timestamp_millis(),
             }) {
                 eprintln!(
@@ -816,4 +958,24 @@ pub(crate) fn find_claude_path() -> Option<String> {
 
     eprintln!("[job_queue] Could not find claude CLI");
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{describe_outcome, job_timeout_secs};
+    use crate::jobs::JobType;
+
+    #[test]
+    fn finders_get_more_time() {
+        assert_eq!(job_timeout_secs(JobType::PeopleFinder), 900);
+        assert_eq!(job_timeout_secs(JobType::LeadFinder), 900);
+        assert_eq!(job_timeout_secs(JobType::CompanyResearch), 600);
+    }
+
+    #[test]
+    fn outcomes_read_as_plain_language() {
+        assert!(describe_outcome("timeout", None, 900).starts_with("Stopped after 15 minutes"));
+        assert!(describe_outcome("error", Some(1), 600).contains("exit code 1"));
+        assert!(!describe_outcome("timeout", None, 600).contains("None"));
+    }
 }

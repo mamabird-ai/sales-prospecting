@@ -229,7 +229,7 @@ function CheckRowItem({
           ) : row.status === "unscored" ? (
             "Not scored yet"
           ) : row.status === "outdated" ? (
-            <span title="Scored before your last change to the criteria or About you">
+            <span title="Scored before your last change to the criteria or Your company">
               Out of date
             </span>
           ) : (

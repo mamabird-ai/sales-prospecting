@@ -21,7 +21,7 @@ interface PromptEditorProps {
   prompts: PromptContents;
 }
 
-/** The company overview has its own page (About you), so it isn't a step here */
+/** The company overview has its own page (Your company), so it isn't a step here */
 type StepId = Exclude<PromptType, "company_overview">;
 
 interface FlowItem {
@@ -46,7 +46,7 @@ interface Step {
 }
 
 const ABOUT_YOU: FlowItem = {
-  label: "About you",
+  label: "Your company",
   note: "what you're building and who you're looking for",
   href: "/about",
 };
@@ -175,9 +175,9 @@ export function PromptEditor({ prompts }: PromptEditorProps) {
       <div className="max-w-5xl px-6 pt-6 pb-24 space-y-6">
         <p className="text-sm text-muted-foreground max-w-2xl">
           Three research jobs run in this order, and each builds on what the one before found. Tell
-          Claude what to look for at each step. Every step also reads{" "}
+          Claude what to look for at each step. Every step also reads what you wrote in{" "}
           <Link to="/about" className="text-foreground underline underline-offset-2">
-            About you
+            Your company
           </Link>
           .
         </p>

@@ -330,3 +330,21 @@ export async function setLeadExpectedFit(
 ): Promise<void> {
   return invoke("set_lead_expected_fit", { leadId, expectedFit });
 }
+
+// ============================================================================
+// Company profile
+// ============================================================================
+
+export interface CompanyDraft {
+  companyName: string | null;
+  product: string | null;
+  problem: string | null;
+  customer: string | null;
+  notAFit: string | null;
+  stage: string | null;
+}
+
+/** Have Claude read a website and draft the company profile fields */
+export async function draftCompanyProfile(website: string): Promise<CompanyDraft> {
+  return invoke("draft_company_profile", { website });
+}

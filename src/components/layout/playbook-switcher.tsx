@@ -229,7 +229,7 @@ function NewPlaybookDialog({
       toast.success(`Created “${name.trim()}”`, {
         description:
           source === "design_partners"
-            ? "Fill in the [bracketed] parts of About you so research knows what you're building."
+            ? "Next, tell Claude about your company. It can draft it from your website."
             : undefined,
       });
       onCreated(source);

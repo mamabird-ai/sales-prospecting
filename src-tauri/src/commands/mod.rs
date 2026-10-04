@@ -1,3 +1,4 @@
+mod company_draft;
 mod database;
 mod jobs;
 mod playbooks;
@@ -6,6 +7,7 @@ mod recovery;
 mod research;
 mod settings;
 
+pub use company_draft::*;
 pub use database::*;
 pub use jobs::*;
 pub use playbooks::*;

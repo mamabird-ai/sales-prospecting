@@ -780,7 +780,7 @@ fn db_reset_entity_status(
     }
 }
 
-fn find_claude_path() -> Option<String> {
+pub(crate) fn find_claude_path() -> Option<String> {
     // Check environment variable first
     if let Ok(path) = std::env::var("CLAUDE_PATH") {
         if std::path::Path::new(&path).exists() {

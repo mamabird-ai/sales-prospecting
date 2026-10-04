@@ -153,6 +153,8 @@ pub fn run() {
             // Known good/bad companies
             commands::get_calibration,
             commands::set_lead_expected_fit,
+            // Drafting the company profile from a website
+            commands::draft_company_profile,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

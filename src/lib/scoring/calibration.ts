@@ -30,7 +30,7 @@ export function agreesWith(expected: ExpectedFit, tier: ScoringTier): boolean {
 
 /**
  * Compare the user's verdicts with the app's scores. A score made before the
- * criteria or About you last changed is outdated: it says nothing about the
+ * criteria or the company profile last changed is outdated: it says nothing about the
  * current setup.
  */
 export function summarizeCheck(

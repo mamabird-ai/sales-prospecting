@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   IconBuilding,
   IconUsers,
-  IconUserCircle,
+  IconBuildingStore,
   IconFileText,
   IconTargetArrow,
 } from "@tabler/icons-react";
@@ -26,7 +26,7 @@ const SECTIONS = [
   {
     title: "Setup",
     links: [
-      { to: "/about", label: "About you", icon: IconUserCircle },
+      { to: "/about", label: "Your company", icon: IconBuildingStore },
       { to: "/prompt", label: "Research instructions", icon: IconFileText },
       { to: "/scoring", label: "Fit criteria", icon: IconTargetArrow },
     ],

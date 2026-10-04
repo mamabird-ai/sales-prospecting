@@ -287,6 +287,6 @@ export type PlaybookSource = "design_partners" | "sales" | "copy";
 
 export interface Calibration {
   expectations: { leadId: number; expectedFit: "good" | "bad" }[];
-  /** When the fit criteria or About you last changed (Unix seconds) */
+  /** When the fit criteria or company profile last changed (Unix seconds) */
   criteriaChangedAt: number;
 }

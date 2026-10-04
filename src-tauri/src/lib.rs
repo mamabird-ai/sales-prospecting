@@ -150,6 +150,9 @@ pub fn run() {
             commands::update_tier_labels,
             commands::delete_playbook,
             commands::set_active_playbook,
+            // Known good/bad companies
+            commands::get_calibration,
+            commands::set_lead_expected_fit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

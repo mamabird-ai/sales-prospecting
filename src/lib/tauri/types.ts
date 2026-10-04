@@ -280,3 +280,13 @@ export interface PlaybooksState {
 
 /** Where a new playbook's instructions and fit criteria come from */
 export type PlaybookSource = "design_partners" | "sales" | "copy";
+
+// ============================================================================
+// Known good/bad companies
+// ============================================================================
+
+export interface Calibration {
+  expectations: { leadId: number; expectedFit: "good" | "bad" }[];
+  /** When the fit criteria or About you last changed (Unix seconds) */
+  criteriaChangedAt: number;
+}

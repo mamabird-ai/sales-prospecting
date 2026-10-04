@@ -386,3 +386,29 @@ pub fn get_onboarding_status(state: State<'_, DbState>) -> Result<OnboardingStat
         has_conversation_topics,
     })
 }
+
+// ============================================================================
+// Known good/bad companies (checking the fit criteria)
+// ============================================================================
+
+#[tauri::command]
+pub fn get_calibration(state: State<'_, DbState>) -> Result<db::Calibration, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_calibration(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
+}
+
+/// Record whether the user considers a company a good or bad fit, or clear it
+#[tauri::command]
+pub fn set_lead_expected_fit(
+    state: State<'_, DbState>,
+    lead_id: i64,
+    expected_fit: Option<String>,
+) -> Result<(), String> {
+    if let Some(fit) = &expected_fit {
+        if !db::EXPECTED_FITS.contains(&fit.as_str()) {
+            return Err(format!("Unknown fit: {fit}"));
+        }
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::set_expected_fit(&conn, lead_id, expected_fit.as_deref()).map_err(|e| e.to_string())
+}

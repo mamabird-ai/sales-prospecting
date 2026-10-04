@@ -19,6 +19,7 @@ import type {
   PlaybooksState,
   PlaybookSource,
   TierLabels,
+  Calibration,
 } from "./types";
 
 // ============================================================================
@@ -313,4 +314,19 @@ export async function deletePlaybook(id: number): Promise<PlaybooksState> {
 
 export async function setActivePlaybook(id: number): Promise<PlaybooksState> {
   return invoke("set_active_playbook", { id });
+}
+
+// ============================================================================
+// Known good/bad companies
+// ============================================================================
+
+export async function getCalibration(): Promise<Calibration> {
+  return invoke("get_calibration");
+}
+
+export async function setLeadExpectedFit(
+  leadId: number,
+  expectedFit: "good" | "bad" | null
+): Promise<void> {
+  return invoke("set_lead_expected_fit", { leadId, expectedFit });
 }

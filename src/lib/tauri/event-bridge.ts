@@ -97,6 +97,7 @@ export async function initializeEventBridge(): Promise<void> {
     const leadId = event.payload.lead_id;
     queryClient.invalidateQueries({ queryKey: queryKeys.leadScore(leadId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.leadsWithScores() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.calibration });
     queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus() });
   });
   unlisteners.push(leadScoredUnlisten);
@@ -120,6 +121,7 @@ export async function initializeEventBridge(): Promise<void> {
       queryClient.removeQueries({ queryKey: queryKeys.leadPeople(id) });
     }
     queryClient.invalidateQueries({ queryKey: queryKeys.leadsWithScores() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.calibration });
     // Also refresh people list as related people may be deleted
     queryClient.invalidateQueries({ queryKey: queryKeys.peopleList() });
     queryClient.invalidateQueries({ queryKey: queryKeys.onboardingStatus() });

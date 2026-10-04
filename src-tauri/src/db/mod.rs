@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod playbooks;
 pub mod queries;
 pub mod schema;
@@ -7,6 +8,7 @@ use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+pub use calibration::*;
 pub use playbooks::*;
 pub use queries::*;
 pub use schema::*;
@@ -323,6 +325,10 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
             &format!("CREATE INDEX IF NOT EXISTS idx_{table}_playbook ON {table}(playbook_id)"),
             [],
         )?;
+    }
+    // The user's own verdict on a company, for checking the fit criteria
+    if table_exists("leads") && !column_exists(conn, "leads", "expected_fit") {
+        conn.execute("ALTER TABLE leads ADD COLUMN expected_fit TEXT", [])?;
     }
     if table_exists("settings") && !column_exists(conn, "settings", "active_playbook_id") {
         conn.execute(

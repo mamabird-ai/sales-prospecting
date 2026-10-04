@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 import { Switch } from "@/components/ui/switch";
 import { applyPlaybooksState } from "@/lib/hooks/use-playbooks";
+import { queryClient } from "@/lib/query/query-client";
+import { queryKeys } from "@/lib/query/keys";
+import { CalibrationStep } from "./calibration-step";
 import { saveScoringConfig, updateTierLabels } from "@/lib/tauri/commands";
 import type { ScoringTier, TierLabels } from "@/lib/tauri/types";
 import type {
@@ -110,6 +113,8 @@ export function ScoringConfigEditor({ seed, playbookId, tierLabels }: ScoringCon
           setSavedLabels(labels);
         }
         setShowMissing(false);
+        // Scores made before this save are now out of date
+        void queryClient.invalidateQueries({ queryKey: queryKeys.calibration });
         toast.success("Fit criteria saved");
       } catch (error) {
         toast.error("Couldn't save fit criteria", {
@@ -188,6 +193,14 @@ export function ScoringConfigEditor({ seed, playbookId, tierLabels }: ScoringCon
             onChange={(field, value) => setConfig((prev) => ({ ...prev, [field]: value }))}
             onLabelChange={(tier, value) => setLabels((prev) => ({ ...prev, [tier]: value }))}
           />
+        </Step>
+
+        <Step
+          number={4}
+          title="Check against companies you know"
+          description="Pick a few companies you already have an opinion about and score them. If the criteria agree with you, they work. Where they don't, the reason shows what to change."
+        >
+          <CalibrationStep criteriaUnsaved={dirty} tierLabels={savedLabels} />
         </Step>
       </div>
 

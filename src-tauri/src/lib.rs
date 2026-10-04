@@ -125,6 +125,7 @@ pub fn run() {
             commands::start_scoring,
             // Find leads commands
             commands::start_find_leads,
+            commands::start_find_people,
             // Conversation commands
             commands::start_conversation_generation,
             // Onboarding commands

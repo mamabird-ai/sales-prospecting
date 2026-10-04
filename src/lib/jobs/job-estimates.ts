@@ -10,6 +10,7 @@ const FALLBACK_DURATION_SECONDS: Record<JobType, number> = {
   scoring: 150,
   conversation: 90,
   lead_finder: 300,
+  people_finder: 300,
 };
 
 /** How many recent completed jobs per type feed the typical duration */

@@ -23,6 +23,7 @@ function mapJobTypeToTabType(jobType: JobType): StreamTabType {
     case "company_research":
       return "company";
     case "person_research":
+    case "people_finder":
       return "person";
     case "scoring":
       return "scoring";

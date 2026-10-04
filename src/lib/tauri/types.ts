@@ -53,6 +53,8 @@ export interface Person {
   conversationTopics: string | null;
   conversationGeneratedAt: number | null;
   createdAt: number;
+  /** Why Find people picked this person, with "Source: <url>" on its own line */
+  foundBecause: string | null;
 }
 
 export interface PersonWithCompany extends Person {
@@ -216,7 +218,12 @@ export interface OnboardingStatus {
 // ============================================================================
 
 export type JobType =
-  "company_research" | "person_research" | "scoring" | "conversation" | "lead_finder";
+  | "company_research"
+  | "person_research"
+  | "scoring"
+  | "conversation"
+  | "lead_finder"
+  | "people_finder";
 export type JobStatus = "queued" | "running" | "completed" | "error" | "timeout" | "cancelled";
 
 export interface Job {

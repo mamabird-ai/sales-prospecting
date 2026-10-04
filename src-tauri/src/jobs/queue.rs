@@ -286,6 +286,7 @@ impl JobQueue {
             super::result_parser::JobType::Scoring => "scoring",
             super::result_parser::JobType::Conversation => "conversation",
             super::result_parser::JobType::LeadFinder => "lead_finder",
+            super::result_parser::JobType::PeopleFinder => "people_finder",
         };
 
         // Read settings and persist job to database
@@ -682,7 +683,8 @@ impl JobQueue {
                     super::result_parser::JobType::Scoring => {
                         events::emit_lead_updated(&app_clone, metadata.entity_id);
                     }
-                    super::result_parser::JobType::LeadFinder => {
+                    super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder => {
                         // No specific entity to update
                     }
                 }

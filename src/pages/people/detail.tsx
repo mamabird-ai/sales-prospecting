@@ -7,6 +7,7 @@ import {
   IconBriefcase,
   IconUser,
   IconCircleCheck,
+  IconExternalLink,
   IconLoader2,
 } from "@tabler/icons-react";
 import { PersonProfileTabs } from "@/components/people/person-profile-tabs";
@@ -85,6 +86,8 @@ export default function PersonDetailPage() {
       <SidebarSection title="Status">
         <UserStatusSelector type="person" entityId={person.id} currentStatus={userStatus} />
       </SidebarSection>
+
+      {person.foundBecause && <FoundBecause text={person.foundBecause} />}
 
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
         Person
@@ -212,5 +215,32 @@ export default function PersonDetailPage() {
       activityContent={activityContent}
       sidebarContent={sidebarContent}
     />
+  );
+}
+
+/** Why Find people picked this person, with a link to the post or page it came from */
+function FoundBecause({ text }: { text: string }) {
+  const match = text.match(/\nSource: (\S+)\s*$/) ?? text.match(/^Source: (\S+)\s*$/);
+  const source = match && /^https?:\/\//.test(match[1]) ? match[1] : null;
+  const reason = match ? text.slice(0, match.index).trim() : text.trim();
+
+  return (
+    <div className="mb-6 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+      <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Why they were found
+      </h3>
+      {reason && <p className="text-xs/relaxed text-foreground">{reason}</p>}
+      {source && (
+        <a
+          href={source}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          <IconExternalLink className="size-3.5" />
+          View source
+        </a>
+      )}
+    </div>
   );
 }

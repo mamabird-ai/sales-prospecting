@@ -188,6 +188,19 @@ export async function startPersonResearch(
   });
 }
 
+export async function startFindPeople(
+  description: string,
+  onEvent: (event: StreamEvent) => void
+): Promise<ResearchResult> {
+  const channel = new Channel<StreamEvent>();
+  channel.onmessage = onEvent;
+
+  return invoke("start_find_people", {
+    description,
+    onEvent: channel,
+  });
+}
+
 export async function startFindLeads(
   icpDescription: string,
   onEvent: (event: StreamEvent) => void

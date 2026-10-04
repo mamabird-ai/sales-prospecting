@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { IconSearch, IconUsers, IconLoader2 } from "@tabler/icons-react";
 import { AddPersonModal } from "@/components/people/add-person-modal";
+import { FindPeopleModal } from "@/components/people/find-people-modal";
 import { PeopleListWithSelection } from "@/components/people/people-list-with-selection";
 import { useAllPeople, useLeadsForSelect } from "@/lib/hooks/use-people";
 import type { PersonWithCompany } from "@/lib/tauri/types";
@@ -71,6 +72,7 @@ export default function PeopleListPage() {
           <span>All People</span>
         </div>
         <div className="flex-1" />
+        <FindPeopleModal />
         <AddPersonModal leads={leads} onSuccess={refresh} />
       </header>
 

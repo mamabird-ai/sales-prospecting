@@ -22,6 +22,7 @@ const RUNNING_LABELS: Record<JobType, string> = {
   scoring: "Scoring",
   conversation: "Writing topics",
   lead_finder: "Finding leads",
+  people_finder: "Finding people",
 };
 
 const BATCH_LABELS: Record<JobType, string> = {
@@ -30,6 +31,7 @@ const BATCH_LABELS: Record<JobType, string> = {
   scoring: "Scoring leads",
   conversation: "Writing talking points",
   lead_finder: "Finding leads",
+  people_finder: "Finding people",
 };
 
 export function useJobDurations() {

@@ -10,6 +10,7 @@ pub enum JobType {
     Scoring,
     Conversation,
     LeadFinder,
+    PeopleFinder,
 }
 
 /// Metadata about a job for tracking, including output file paths
@@ -26,7 +27,7 @@ pub struct JobMetadata {
     pub secondary_output_path: Option<PathBuf>,
     /// For CompanyResearch/PersonResearch: enrichment.json path for structured data
     pub enrichment_output_path: Option<PathBuf>,
-    /// For LeadFinder: the playbook to add found companies to. Other job types
+    /// For LeadFinder and PeopleFinder: the playbook to add results to. Other job types
     /// work on an existing company or person, which already has a playbook.
     pub playbook_id: Option<i64>,
 }

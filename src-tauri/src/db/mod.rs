@@ -326,6 +326,10 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
             [],
         )?;
     }
+    // Why Find people picked a person, with a link to the evidence
+    if table_exists("people") && !column_exists(conn, "people", "found_because") {
+        conn.execute("ALTER TABLE people ADD COLUMN found_because TEXT", [])?;
+    }
     // The user's own verdict on a company, for checking the fit criteria
     if table_exists("leads") && !column_exists(conn, "leads", "expected_fit") {
         conn.execute("ALTER TABLE leads ADD COLUMN expected_fit TEXT", [])?;

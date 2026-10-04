@@ -61,6 +61,8 @@ pub struct Person {
     pub conversation_topics: Option<String>,
     pub conversation_generated_at: Option<i64>,
     pub created_at: i64,
+    /// Why Find people picked this person, with a link to the evidence
+    pub found_because: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +87,8 @@ pub struct PersonWithCompany {
     pub company_name: Option<String>,
     pub company_website: Option<String>,
     pub company_industry: Option<String>,
+    /// Why Find people picked this person, with a link to the evidence
+    pub found_because: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

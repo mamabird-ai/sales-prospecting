@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { IconLoader2, IconPlus, IconTrash } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { AutoGrowTextarea } from "@/components/ui/auto-grow-textarea";
 import { Switch } from "@/components/ui/switch";
 import { applyPlaybooksState } from "@/lib/hooks/use-playbooks";
 import { saveScoringConfig, updateTierLabels } from "@/lib/tauri/commands";
@@ -123,7 +124,7 @@ export function ScoringConfigEditor({ seed, playbookId, tierLabels }: ScoringCon
   const saving = isPending || isSaving;
 
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1 overflow-auto [scrollbar-gutter:stable]">
       <div className="max-w-3xl px-6 pt-6 pb-24 space-y-10">
         <p className="text-sm text-muted-foreground max-w-xl">
           When you score a company, Claude checks it against these criteria in order: the must-haves
@@ -372,7 +373,7 @@ function CriterionCard({
             value={item.description}
             onChange={(description) => onChange({ description })}
             placeholder={descriptionPlaceholder}
-            ariaLabel={`What Claude checks for ${label}`}
+            aria-label={`What Claude checks for ${label}`}
             className={cn(inlineField, "py-1 text-xs/relaxed text-muted-foreground")}
           />
           {hasWeight(item) && (
@@ -397,61 +398,6 @@ function CriterionCard({
         </Button>
       </div>
     </div>
-  );
-}
-
-function AutoGrowTextarea({
-  value,
-  onChange,
-  placeholder,
-  ariaLabel,
-  className,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  ariaLabel: string;
-  className?: string;
-}) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  // Grow with the text so the whole description is always visible
-  const fit = () => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-
-  useLayoutEffect(fit, [value]);
-
-  // Wrapping depends on width, which can still be settling on first render or
-  // change with the window, so refit when the width changes
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // The observer reports once on start; -1 makes that first report refit
-    let lastWidth = -1;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth !== lastWidth) {
-        lastWidth = el.clientWidth;
-        fit();
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <textarea
-      ref={ref}
-      rows={1}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      aria-label={ariaLabel}
-      className={cn("block resize-none overflow-hidden", className)}
-    />
   );
 }
 

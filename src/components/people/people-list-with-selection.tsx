@@ -31,6 +31,7 @@ type PersonWithCompany = {
   companyName: string | null;
   researchStatus: string | null;
   userStatus: string | null;
+  foundFit?: "strong" | "possible" | null;
 };
 
 interface PeopleListWithSelectionProps {
@@ -231,7 +232,23 @@ function PersonRow({ person }: { person: PersonWithCompany }) {
         </div>
       )}
 
+      {person.foundFit && <FitTag fit={person.foundFit} />}
       <ResearchStatusBadge status={person.researchStatus} size="sm" />
     </SelectableRow>
+  );
+}
+
+/** How well Find people thought someone matched, so strong ones stand out */
+function FitTag({ fit }: { fit: "strong" | "possible" }) {
+  return (
+    <span
+      className={
+        fit === "strong"
+          ? "shrink-0 rounded bg-green-500/10 px-1.5 py-0.5 text-[11px] text-green-400"
+          : "shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+      }
+    >
+      {fit === "strong" ? "Strong fit" : "Worth a look"}
+    </span>
   );
 }

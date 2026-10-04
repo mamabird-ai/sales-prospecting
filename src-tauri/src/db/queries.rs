@@ -183,7 +183,7 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry, p.found_because
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
          WHERE p.id = ?1",
@@ -217,6 +217,7 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
             company_website: row.get(17)?,
             company_industry: row.get(18)?,
             found_because: row.get(19)?,
+            found_fit: row.get(20)?,
         }))
     } else {
         Ok(None)
@@ -228,7 +229,7 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
                 user_status, conversation_topics, conversation_generated_at, created_at,
-                found_because
+                found_because, found_fit
          FROM people WHERE id = ?1",
     )?;
 
@@ -257,6 +258,7 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
             conversation_generated_at: row.get(14)?,
             created_at: row.get(15)?,
             found_because: row.get(16)?,
+            found_fit: row.get(17)?,
         }))
     } else {
         Ok(None)
@@ -268,7 +270,7 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
                 user_status, conversation_topics, conversation_generated_at, created_at,
-                found_because
+                found_because, found_fit
          FROM people WHERE lead_id = ?1 ORDER BY last_name ASC, first_name ASC",
     )?;
 
@@ -295,6 +297,7 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
             conversation_generated_at: row.get(14)?,
             created_at: row.get(15)?,
             found_because: row.get(16)?,
+            found_fit: row.get(17)?,
         })
     })?;
 
@@ -306,7 +309,7 @@ pub fn get_all_people(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<P
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry, p.found_because
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
          WHERE p.playbook_id = ?1
@@ -339,6 +342,7 @@ pub fn get_all_people(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<P
             company_website: row.get(17)?,
             company_industry: row.get(18)?,
             found_because: row.get(19)?,
+            found_fit: row.get(20)?,
         })
     })?;
 

@@ -38,6 +38,7 @@ export default function PeopleListPage() {
       companyName: person.companyName,
       researchStatus: person.researchStatus,
       userStatus: person.userStatus,
+      foundFit: person.foundFit,
     };
     groupedPeople[status].push(personForList as PersonWithCompany);
   }

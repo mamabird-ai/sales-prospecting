@@ -227,17 +227,22 @@ impl CompletionHandler {
                 }
             };
 
-            let found_because = match (text(found, "whyTheyFit"), text(found, "evidenceUrl")) {
-                (Some(why), Some(url)) => Some(format!("{why}\nSource: {url}")),
-                (Some(why), None) => Some(why),
-                (None, Some(url)) => Some(format!("Source: {url}")),
-                (None, None) => None,
+            // Reason, then what couldn't be confirmed, then the source on its own line
+            let mut lines: Vec<String> = Vec::new();
+            lines.extend(text(found, "whyTheyFit"));
+            lines.extend(text(found, "notConfirmed").map(|n| format!("Not confirmed: {n}")));
+            lines.extend(text(found, "evidenceUrl").map(|url| format!("Source: {url}")));
+            let found_because = (!lines.is_empty()).then(|| lines.join("\n"));
+            // Anything other than a clear "strong" is worth a look, not more
+            let found_fit = match text(found, "fit").map(|f| f.to_lowercase()) {
+                Some(f) if f == "strong" => "strong",
+                _ => "possible",
             };
 
             tx.execute(
                 "INSERT INTO people (first_name, last_name, title, linkedin_url, lead_id, research_status,
-                                     user_status, created_at, playbook_id, found_because)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7, ?8)",
+                                     user_status, created_at, playbook_id, found_because, found_fit)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7, ?8, ?9)",
                 rusqlite::params![
                     first,
                     last,
@@ -246,7 +251,8 @@ impl CompletionHandler {
                     lead_id,
                     now,
                     playbook_id,
-                    found_because
+                    found_because,
+                    found_fit
                 ],
             )?;
             // 0 refreshes the people list for people without a company

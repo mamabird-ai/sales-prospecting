@@ -55,6 +55,8 @@ export interface Person {
   createdAt: number;
   /** Why Find people picked this person, with "Source: <url>" on its own line */
   foundBecause: string | null;
+  /** How well Find people thinks they match */
+  foundFit: "strong" | "possible" | null;
 }
 
 export interface PersonWithCompany extends Person {

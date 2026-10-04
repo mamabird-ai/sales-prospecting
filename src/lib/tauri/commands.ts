@@ -188,15 +188,20 @@ export async function startPersonResearch(
   });
 }
 
+/** Where a Find people search concentrates; a wide search runs all three */
+export type SearchFocus = "linkedin" | "talks" | "startups";
+
 export async function startFindPeople(
   description: string,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
+  focus?: SearchFocus
 ): Promise<ResearchResult> {
   const channel = new Channel<StreamEvent>();
   channel.onmessage = onEvent;
 
   return invoke("start_find_people", {
     description,
+    focus: focus ?? null,
     onEvent: channel,
   });
 }

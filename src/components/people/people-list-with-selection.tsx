@@ -232,7 +232,10 @@ function PersonRow({ person }: { person: PersonWithCompany }) {
         </div>
       )}
 
-      {person.foundFit && <FitTag fit={person.foundFit} />}
+      {/* Always the same width, so the company column lines up on rows without a tag */}
+      <span className="flex w-24 shrink-0 justify-end">
+        {person.foundFit && <FitTag fit={person.foundFit} />}
+      </span>
       <ResearchStatusBadge status={person.researchStatus} size="sm" />
     </SelectableRow>
   );

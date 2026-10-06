@@ -4,7 +4,7 @@ import { getSettings, updateSettings as updateSettingsCmd } from "@/lib/tauri/co
 import modelConfig from "@/config/claude-models.json";
 
 export type ClaudeModel =
-  "claude-fable-5" | "claude-opus-4-8" | "claude-sonnet-5" | "claude-haiku-4-5";
+  "claude-fable-5" | "claude-opus-5-5" | "claude-opus-4-8" | "claude-sonnet-5" | "claude-haiku-4-5";
 
 export interface ModelOption {
   value: ClaudeModel;

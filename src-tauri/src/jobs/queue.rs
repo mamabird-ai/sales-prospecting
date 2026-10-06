@@ -23,8 +23,8 @@ pub enum EntityType {
 }
 
 /// Context for entity status rollback on job failure
-/// This allows us to reset entity status when jobs fail during queue timeout,
-/// cancellation, or other early termination scenarios
+/// This allows us to reset entity status when jobs end early
+/// through cancellation or other early termination scenarios
 #[derive(Debug, Clone)]
 pub struct EntityContext {
     pub entity_type: EntityType,
@@ -36,7 +36,94 @@ pub struct EntityContext {
 // Configuration
 const MAX_CONCURRENT_JOBS: usize = 5;
 const JOB_TIMEOUT_SECS: u64 = 600; // 10 minutes
-const QUEUE_TIMEOUT_SECS: u64 = 30;
+/// Find Leads and Find people search widely, so they get longer
+const FINDER_TIMEOUT_SECS: u64 = 900; // 15 minutes
+
+/// Spending cap for Find Leads and Find people. Left alone, a broad search
+/// can run 80+ searches; the jobs save as they go, so a capped run still
+/// leaves its results behind.
+const FINDER_BUDGET_USD: &str = "2.00";
+
+fn job_timeout_secs(job_type: super::result_parser::JobType) -> u64 {
+    use super::result_parser::JobType;
+    match job_type {
+        JobType::LeadFinder | JobType::PeopleFinder => FINDER_TIMEOUT_SECS,
+        _ => JOB_TIMEOUT_SECS,
+    }
+}
+
+/// Spending cap and time limit for the step that writes down a stopped
+/// finder's results
+const SAVE_RESULTS_BUDGET_USD: &str = "0.75";
+const SAVE_RESULTS_TIMEOUT_SECS: u64 = 120;
+
+/// Resume a finder's Claude session, with web tools off, and have it write
+/// what it already found to the output file. Returns whether the file exists.
+async fn save_finder_results(
+    claude_path: &str,
+    model: &str,
+    session_id: &str,
+    job_type: super::result_parser::JobType,
+    output_path: &std::path::Path,
+    working_dir: &str,
+) -> bool {
+    let what = match job_type {
+        super::result_parser::JobType::PeopleFinder => "people",
+        _ => "companies",
+    };
+    let prompt = format!(
+        "Stop searching now. Write the {what} you have already found, from the searches above, \
+         to {} as a JSON array in the format the task described. Include only {what} you found \
+         evidence for. Then stop.",
+        output_path.display()
+    );
+    let child = Command::new(claude_path)
+        .args([
+            "-p",
+            "--resume",
+            session_id,
+            "--output-format",
+            "json",
+            "--permission-mode",
+            "acceptEdits",
+            "--disallowedTools",
+            "Bash,Agent,Task,WebSearch,WebFetch",
+            "--max-budget-usd",
+            SAVE_RESULTS_BUDGET_USD,
+            "--model",
+            model,
+            &prompt,
+        ])
+        .current_dir(working_dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let Ok(child) = child else {
+        return false;
+    };
+    let _ = tokio::time::timeout(
+        Duration::from_secs(SAVE_RESULTS_TIMEOUT_SECS),
+        child.wait_with_output(),
+    )
+    .await;
+    output_path.exists()
+}
+
+/// A plain-language outcome for the Activity panel and job history
+fn describe_outcome(status: &str, exit_code: Option<i32>, timeout_secs: u64) -> String {
+    match (status, exit_code) {
+        ("completed", _) => "Finished".to_string(),
+        ("timeout", _) => format!(
+            "Stopped after {} minutes, the time limit for this kind of job. Anything it had saved was kept.",
+            timeout_secs / 60
+        ),
+        ("cancelled", _) => "Stopped".to_string(),
+        (_, Some(code)) => format!("Claude stopped with an error (exit code {code}). See the log above."),
+        _ => "Claude stopped unexpectedly. See the log above.".to_string(),
+    }
+}
 const GRACEFUL_SHUTDOWN_SECS: u64 = 2; // Time to wait for graceful SIGTERM shutdown
 const STREAM_DRAIN_TIMEOUT_SECS: u64 = 5; // Time to wait for stream tasks to complete
 
@@ -245,7 +332,6 @@ impl JobQueue {
     /// Settings (model, use_chrome) are read from the database at job execution time.
     ///
     /// If `entity_context` is provided, the entity's status will be reset on:
-    /// - Queue timeout (semaphore acquisition fails after 30s)
     /// - Job cancellation before running
     /// - Any error before job starts
     #[allow(clippy::too_many_arguments)]
@@ -288,6 +374,7 @@ impl JobQueue {
             super::result_parser::JobType::Scoring => "scoring",
             super::result_parser::JobType::Conversation => "conversation",
             super::result_parser::JobType::LeadFinder => "lead_finder",
+            super::result_parser::JobType::PeopleFinder => "people_finder",
         };
 
         // Read settings and persist job to database
@@ -365,7 +452,7 @@ impl JobQueue {
                     );
                 };
 
-            // Try to acquire semaphore with queue timeout
+            // Wait for a free slot (no timeout: queued jobs run in submission order until cancelled)
             let permit = tokio::select! {
                 permit = semaphore.acquire_owned() => {
                     match permit {
@@ -387,23 +474,6 @@ impl JobQueue {
                             return;
                         }
                     }
-                }
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(QUEUE_TIMEOUT_SECS)) => {
-                    let _ = on_event.send(StreamEvent {
-                        job_id: job_id_clone.clone(),
-                        event_type: "error".to_string(),
-                        content: "Queue timeout - server busy".to_string(),
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                    });
-                    active_jobs.lock().await.remove(&job_id_clone);
-                    // Reset entity status on queue timeout
-                    if let Some(ref ctx) = entity_context {
-                        db_reset_entity_status(&db_conn, ctx, &app_clone);
-                    }
-                    update_job_status("error", None, Some("Queue timeout - server busy"));
-                    job_guard.defuse(); // Cleanup handled manually
-                    on_complete(metadata, String::new(), false);
-                    return;
                 }
                 _ = cancel_rx.recv() => {
                     let _ = on_event.send(StreamEvent {
@@ -445,18 +515,45 @@ impl JobQueue {
 
             // Build arguments using settings
             // Note: prompt must be last as it's a positional argument
+            //
+            // Jobs read untrusted web content, so permissions are scoped instead of skipped:
+            // file edits are auto-accepted only inside working_dir (the job's output folder),
+            // web tools are pre-approved, and shell access is denied. Anything else is
+            // denied automatically because print mode cannot prompt.
             let mut args = vec![
                 "-p".to_string(),
                 "--output-format".to_string(),
                 "stream-json".to_string(),
                 "--verbose".to_string(),
-                "--dangerously-skip-permissions".to_string(),
+                "--permission-mode".to_string(),
+                "acceptEdits".to_string(),
+                "--disallowedTools".to_string(),
+                // No shell, and no sub-agents: they multiply cost and time, and a
+                // job that hands off its work can run out the clock without saving
+                "Bash,Agent,Task".to_string(),
             ];
+
+            let mut allowed_tools = vec!["WebSearch", "WebFetch"];
+
+            if matches!(
+                metadata.job_type,
+                super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder
+            ) {
+                args.push("--max-budget-usd".to_string());
+                args.push(FINDER_BUDGET_USD.to_string());
+            }
 
             // Add --chrome flag if enabled in settings
             if settings.use_chrome {
                 args.push("--chrome".to_string());
+                allowed_tools.push("mcp__claude-in-chrome");
             }
+
+            // Variadic flag: must be followed by another option (--model) so it
+            // does not consume the positional prompt
+            args.push("--allowedTools".to_string());
+            args.push(allowed_tools.join(","));
 
             // Add model from settings
             args.push("--model".to_string());
@@ -565,7 +662,8 @@ impl JobQueue {
             });
 
             // Wait for completion with timeout
-            let result = tokio::select! {
+            let timeout_secs = job_timeout_secs(metadata.job_type);
+            let mut result = tokio::select! {
                 status = child.wait() => {
                     match status {
                         Ok(s) => {
@@ -583,8 +681,8 @@ impl JobQueue {
                         }
                     }
                 }
-                _ = tokio::time::sleep(Duration::from_secs(JOB_TIMEOUT_SECS)) => {
-                    eprintln!("[job_queue] job_id={} Job timeout after {} seconds", job_id_clone, JOB_TIMEOUT_SECS);
+                _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => {
+                    eprintln!("[job_queue] job_id={} Job timeout after {} seconds", job_id_clone, timeout_secs);
                     graceful_shutdown(child, &job_id_clone).await;
                     ("timeout".to_string(), None, false)
                 }
@@ -621,12 +719,54 @@ impl JobQueue {
                 );
             }
 
+            // A finder that stopped at its time or spending limit before saving
+            // still has everything it found in its session: resume it once to
+            // write that down rather than losing the run
+            let is_finder = matches!(
+                metadata.job_type,
+                super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder
+            );
+            if is_finder && result.0 != "cancelled" && !metadata.primary_output_path.exists() {
+                let session_id = db_conn.lock().ok().and_then(|conn| {
+                    crate::db::get_job(&conn, &job_id_clone)
+                        .ok()
+                        .flatten()
+                        .and_then(|job| job.claude_session_id)
+                });
+                if let Some(session_id) = session_id {
+                    let _ = on_event.send(StreamEvent {
+                        job_id: job_id_clone.clone(),
+                        event_type: "info".to_string(),
+                        content: "Stopped before saving. Writing down what was found so far…"
+                            .to_string(),
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                    });
+                    let saved = save_finder_results(
+                        &claude_path,
+                        &settings.model,
+                        &session_id,
+                        metadata.job_type,
+                        &metadata.primary_output_path,
+                        &working_dir,
+                    )
+                    .await;
+                    eprintln!(
+                        "[job_queue] job_id={} Saved results after stopping: {}",
+                        job_id_clone, saved
+                    );
+                    if saved {
+                        result = ("completed".to_string(), Some(0), true);
+                    }
+                }
+            }
+
             // Finalize stream processor and get completion context
             let completion_ctx = stream_processor.finalize(result.2, result.1).await;
 
             // Update job status in database
             let error_msg = if !result.2 {
-                Some(format!("Job {} with code {:?}", result.0, result.1))
+                Some(describe_outcome(&result.0, result.1, timeout_secs))
             } else {
                 None
             };
@@ -636,7 +776,7 @@ impl JobQueue {
             if let Err(e) = on_event.send(StreamEvent {
                 job_id: job_id_clone.clone(),
                 event_type: result.0.clone(),
-                content: format!("Job {} with code {:?}", result.0, result.1),
+                content: describe_outcome(&result.0, result.1, timeout_secs),
                 timestamp: chrono::Utc::now().timestamp_millis(),
             }) {
                 eprintln!(
@@ -685,7 +825,8 @@ impl JobQueue {
                     super::result_parser::JobType::Scoring => {
                         events::emit_lead_updated(&app_clone, metadata.entity_id);
                     }
-                    super::result_parser::JobType::LeadFinder => {
+                    super::result_parser::JobType::LeadFinder
+                    | super::result_parser::JobType::PeopleFinder => {
                         // No specific entity to update
                     }
                 }
@@ -746,7 +887,7 @@ fn db_update_job_pid(conn: &Arc<std::sync::Mutex<rusqlite::Connection>>, job_id:
     }
 }
 
-/// Reset entity status when job fails early (queue timeout, cancellation, etc.)
+/// Reset entity status when job fails early (cancellation, spawn failure, etc.)
 fn db_reset_entity_status(
     conn: &Arc<std::sync::Mutex<rusqlite::Connection>>,
     entity_ctx: &EntityContext,
@@ -783,7 +924,7 @@ fn db_reset_entity_status(
     }
 }
 
-fn find_claude_path() -> Option<String> {
+pub(crate) fn find_claude_path() -> Option<String> {
     // Check environment variable first
     if let Ok(path) = std::env::var("CLAUDE_PATH") {
         if std::path::Path::new(&path).exists() {
@@ -817,4 +958,24 @@ fn find_claude_path() -> Option<String> {
 
     eprintln!("[job_queue] Could not find claude CLI");
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{describe_outcome, job_timeout_secs};
+    use crate::jobs::JobType;
+
+    #[test]
+    fn finders_get_more_time() {
+        assert_eq!(job_timeout_secs(JobType::PeopleFinder), 900);
+        assert_eq!(job_timeout_secs(JobType::LeadFinder), 900);
+        assert_eq!(job_timeout_secs(JobType::CompanyResearch), 600);
+    }
+
+    #[test]
+    fn outcomes_read_as_plain_language() {
+        assert!(describe_outcome("timeout", None, 900).starts_with("Stopped after 15 minutes"));
+        assert!(describe_outcome("error", Some(1), 600).contains("exit code 1"));
+        assert!(!describe_outcome("timeout", None, 600).contains("None"));
+    }
 }

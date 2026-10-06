@@ -4,10 +4,20 @@ import { ClientLogEntry } from "@/lib/types/claude";
 
 export type StreamTabType = "company" | "person" | "conversation" | "scoring";
 
+/** Default and minimum expanded height of the Activity panel, as % of the window */
+export const DEFAULT_PANEL_SIZE = 35;
+export const MIN_PANEL_SIZE = 15;
+/** Enough to cover the tab list (recent 50 jobs) many times over */
+const MAX_DISMISSED_JOBS = 500;
+
 interface StreamPanelState {
   // UI state (persisted to localStorage)
   isOpen: boolean;
   activeTabId: string | null;
+  /** Height when expanded, as % of the window, so it reopens at the user's size */
+  panelSize: number;
+  /** Jobs whose tabs the user closed; the job history itself is kept */
+  dismissedJobIds: string[];
 
   // Logs per job (NOT persisted - hydrated from DB on reload)
   // Key: jobId, Value: log entries
@@ -20,6 +30,8 @@ interface StreamPanelState {
   setOpen: (open: boolean) => void;
   toggle: () => void;
   setActiveTab: (jobId: string | null) => void;
+  setPanelSize: (size: number) => void;
+  dismissJobs: (jobIds: string[]) => void;
 
   // Log management
   appendLogs: (jobId: string, logs: ClientLogEntry[]) => void;
@@ -33,6 +45,8 @@ export const useStreamPanelStore = create<StreamPanelState>()(
     (set) => ({
       isOpen: false,
       activeTabId: null,
+      panelSize: DEFAULT_PANEL_SIZE,
+      dismissedJobIds: [],
       jobLogs: new Map(),
       isHydrated: false,
 
@@ -41,6 +55,18 @@ export const useStreamPanelStore = create<StreamPanelState>()(
       toggle: () => set((state) => ({ isOpen: !state.isOpen })),
 
       setActiveTab: (jobId) => set({ activeTabId: jobId }),
+
+      setPanelSize: (size) => set({ panelSize: Math.max(size, MIN_PANEL_SIZE) }),
+
+      dismissJobs: (jobIds) =>
+        set((state) => {
+          const dismissed = [...new Set([...state.dismissedJobIds, ...jobIds])];
+          return {
+            dismissedJobIds: dismissed.slice(-MAX_DISMISSED_JOBS),
+            activeTabId:
+              state.activeTabId && jobIds.includes(state.activeTabId) ? null : state.activeTabId,
+          };
+        }),
 
       // Append new logs (from live streaming)
       appendLogs: (jobId, logs) =>
@@ -86,6 +112,8 @@ export const useStreamPanelStore = create<StreamPanelState>()(
       partialize: (state) => ({
         isOpen: state.isOpen,
         activeTabId: state.activeTabId,
+        panelSize: state.panelSize,
+        dismissedJobIds: state.dismissedJobIds,
       }),
     }
   )

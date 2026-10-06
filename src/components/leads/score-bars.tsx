@@ -1,5 +1,6 @@
 import type { ParsedLeadScore, ScoringTier } from "@/lib/types/scoring";
 import { cn } from "@/lib/utils";
+import { useTierLabels } from "@/lib/hooks/use-playbooks";
 
 const tierColors: Record<ScoringTier, string> = {
   hot: "bg-green-500",
@@ -86,9 +87,8 @@ export function ScoreCard({ score, className }: ScoreCardProps) {
   const totalScore = score?.totalScore ?? 0;
   const tier = score?.tier;
   const tierTextColor = tier ? tierTextColors[tier] : "text-neutral-400";
-  const tierLabel = tier
-    ? { hot: "Hot", warm: "Warm", nurture: "Nurture", disqualified: "Disqualified" }[tier]
-    : "Unscored";
+  const tierLabels = useTierLabels();
+  const tierLabel = tier ? tierLabels[tier] : "Unscored";
 
   return (
     <div className={cn("space-y-2", className)}>

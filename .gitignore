@@ -48,7 +48,6 @@ next-env.d.ts
 # tauri
 src-tauri/target/
 src-tauri/WixTools/
-src-tauri/Cargo.lock
 
 # IDE
 .idea/
@@ -61,3 +60,6 @@ src-tauri/Cargo.lock
 
 # local
 .local/
+
+# Claude Code per-user settings
+.claude/settings.local.json

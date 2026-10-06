@@ -16,7 +16,7 @@ import {
 } from "@tabler/icons-react";
 
 interface StreamPanelTabsProps {
-  onCloseTab: (jobId: string, isRunning: boolean) => void;
+  onCloseTab: (tab: StreamTab) => void;
 }
 
 export function StreamPanelTabs({ onCloseTab }: StreamPanelTabsProps) {
@@ -29,14 +29,18 @@ export function StreamPanelTabs({ onCloseTab }: StreamPanelTabsProps) {
   }
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10">
+    <div
+      role="tablist"
+      aria-label="Jobs"
+      className="flex items-center gap-1 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10"
+    >
       {tabs.map((tab) => (
         <TabItem
           key={tab.jobId}
           tab={tab}
           isActive={tab.jobId === activeTabId}
           onClick={() => setActiveTab(tab.jobId)}
-          onClose={() => onCloseTab(tab.jobId, tab.status === "running" || tab.status === "queued")}
+          onClose={() => onCloseTab(tab)}
         />
       ))}
     </div>
@@ -81,10 +85,19 @@ function TabItem({ tab, isActive, onClick, onClose }: TabItemProps) {
   const TypeIcon = TYPE_ICONS[tab.type] ?? IconBuilding;
 
   return (
-    <button
+    <div
+      role="tab"
+      tabIndex={isActive ? 0 : -1}
+      aria-selected={isActive}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={cn(
-        "group flex border-b-2 border-white/5 items-center gap-2 px-3 py-2 text-sm transition-colors whitespace-nowrap",
+        "group flex cursor-pointer border-b-2 border-white/5 items-center gap-2 px-3 py-2 text-sm transition-colors whitespace-nowrap outline-none focus-visible:bg-white/5",
         isActive ? "bg-white/5 text-foreground border-white/20" : "text-muted-foreground"
       )}
     >
@@ -100,11 +113,12 @@ function TabItem({ tab, isActive, onClick, onClose }: TabItemProps) {
           e.stopPropagation();
           onClose();
         }}
-        className="p-0.5 rounded bg-white/10 opacity-20 group-hover:opacity-100 transition-opacity"
+        aria-label={isRunning ? `Stop and close ${tab.label}` : `Close ${tab.label}`}
+        title={isRunning ? "Stop job and close tab" : "Close tab"}
+        className="p-0.5 rounded bg-white/10 opacity-20 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <IconX className="size-3 font-bold text-white" />
-        <span className="sr-only">Close tab</span>
       </button>
-    </button>
+    </div>
   );
 }

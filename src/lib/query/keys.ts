@@ -18,6 +18,12 @@ export const queryKeys = {
   jobsActive: () => [...queryKeys.jobs, "active"] as const,
   jobsRecent: (limit: number) => [...queryKeys.jobs, "recent", limit] as const,
 
+  // Playbooks
+  playbooks: ["playbooks"] as const,
+
+  // Known good/bad companies for checking the fit criteria
+  calibration: ["calibration"] as const,
+
   // Onboarding
   onboarding: ["onboarding"] as const,
   onboardingStatus: () => [...queryKeys.onboarding, "status"] as const,

@@ -36,6 +36,9 @@ export interface NewLead {
 // Person Types
 // ============================================================================
 
+/** How research judged a person: a clear fit, worth considering, or probably not */
+export type ResearchFit = "strong" | "possible" | "unlikely";
+
 export interface Person {
   id: number;
   leadId: number | null;
@@ -53,6 +56,13 @@ export interface Person {
   conversationTopics: string | null;
   conversationGeneratedAt: number | null;
   createdAt: number;
+  /** Why Find people picked this person, with "Source: <url>" on its own line */
+  foundBecause: string | null;
+  /** How well Find people thinks they match */
+  foundFit: "strong" | "possible" | null;
+  /** Research's verdict after reading about them, replaced by each research run */
+  researchFit: ResearchFit | null;
+  researchFitReason: string | null;
 }
 
 export interface PersonWithCompany extends Person {
@@ -172,6 +182,26 @@ export interface LeadWithScore {
 }
 
 // ============================================================================
+// People Searches
+// ============================================================================
+
+export type PeopleSearchSize = "standard" | "wide";
+
+/** A past Find people search and what it turned up */
+export interface PeopleSearch {
+  id: number;
+  description: string;
+  size: PeopleSearchSize;
+  createdAt: number;
+  /** People this search added to the playbook */
+  peopleFound: number;
+  /** Of those, how many Find people marked as a strong fit */
+  strongFits: number;
+  /** Of those, how many you've moved past "New" */
+  peopleActedOn: number;
+}
+
+// ============================================================================
 // Research Types
 // ============================================================================
 
@@ -216,7 +246,12 @@ export interface OnboardingStatus {
 // ============================================================================
 
 export type JobType =
-  "company_research" | "person_research" | "scoring" | "conversation" | "lead_finder";
+  | "company_research"
+  | "person_research"
+  | "scoring"
+  | "conversation"
+  | "lead_finder"
+  | "people_finder";
 export type JobStatus = "queued" | "running" | "completed" | "error" | "timeout" | "cancelled";
 
 export interface Job {
@@ -255,4 +290,38 @@ export interface JobLog {
   timestamp: number;
   sequence: number;
   source: "stdout" | "stderr" | "internal";
+}
+
+// ============================================================================
+// Playbook Types
+// ============================================================================
+
+/** Display names for the scoring tiers; stored tier values never change */
+export type TierLabels = Record<ScoringTier, string>;
+
+export interface Playbook {
+  id: number;
+  name: string;
+  tierLabels: TierLabels;
+  leadCount: number;
+  personCount: number;
+  createdAt: number;
+}
+
+export interface PlaybooksState {
+  playbooks: Playbook[];
+  activeId: number;
+}
+
+/** Where a new playbook's instructions and fit criteria come from */
+export type PlaybookSource = "design_partners" | "sales" | "copy";
+
+// ============================================================================
+// Known good/bad companies
+// ============================================================================
+
+export interface Calibration {
+  expectations: { leadId: number; expectedFit: "good" | "bad" }[];
+  /** When the fit criteria or company profile last changed (Unix seconds) */
+  criteriaChangedAt: number;
 }

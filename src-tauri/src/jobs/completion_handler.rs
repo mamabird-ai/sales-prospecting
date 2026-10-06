@@ -10,6 +10,7 @@
 
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -85,6 +86,9 @@ pub enum ParsedOutput {
     LeadFinder {
         leads: Vec<serde_json::Value>,
     },
+    PeopleFinder {
+        people: Vec<serde_json::Value>,
+    },
 }
 
 /// Handles job completion with atomic operations
@@ -94,6 +98,182 @@ pub struct CompletionHandler {
 }
 
 impl CompletionHandler {
+    /// Add people from Find people to a playbook, linking each to their
+    /// company in that playbook (created if new) and skipping anyone already
+    /// there, matched by LinkedIn URL or by name and company
+    fn insert_found_people(
+        &self,
+        tx: &rusqlite::Transaction,
+        people: &[serde_json::Value],
+        playbook_id: i64,
+        search_id: Option<i64>,
+    ) -> rusqlite::Result<()> {
+        let now = chrono::Utc::now().timestamp();
+        let text = |value: &serde_json::Value, key: &str| {
+            value
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+
+        // Companies already in the playbook, by name and by domain
+        let mut company_by_name: HashMap<String, i64> = HashMap::new();
+        let mut company_by_domain: HashMap<String, i64> = HashMap::new();
+        {
+            let mut stmt =
+                tx.prepare("SELECT id, company_name, website FROM leads WHERE playbook_id = ?1")?;
+            let rows = stmt.query_map([playbook_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, name, website) = row?;
+                if let Some(key) = normalize_company_name(&name) {
+                    company_by_name.insert(key, id);
+                }
+                if let Some(domain) = website.as_deref().and_then(normalize_domain) {
+                    company_by_domain.insert(domain, id);
+                }
+            }
+        }
+
+        // People already in the playbook
+        let mut seen_profiles = HashSet::new();
+        let mut seen_people = HashSet::new();
+        {
+            let mut stmt = tx.prepare(
+                "SELECT p.first_name, p.last_name, p.linkedin_url, l.company_name
+                 FROM people p LEFT JOIN leads l ON l.id = p.lead_id
+                 WHERE p.playbook_id = ?1",
+            )?;
+            let rows = stmt.query_map([playbook_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (first, last, linkedin, company) = row?;
+                if let Some(profile) = linkedin.as_deref().and_then(normalize_linkedin) {
+                    seen_profiles.insert(profile);
+                }
+                seen_people.insert(person_key(&first, &last, company.as_deref()));
+            }
+        }
+
+        let mut touched_companies = HashSet::new();
+        let mut skipped = 0;
+        for found in people {
+            let (Some(first), Some(last)) = (text(found, "firstName"), text(found, "lastName"))
+            else {
+                skipped += 1;
+                continue;
+            };
+            // Placeholders like "None" or "Multiple (...)" aren't companies
+            let company = text(found, "companyName").filter(|name| is_real_company(name));
+            // Only keep real profile links, not search or post URLs
+            let linkedin =
+                text(found, "linkedinUrl").filter(|url| normalize_linkedin(url).is_some());
+            let profile_key = linkedin.as_deref().and_then(normalize_linkedin);
+            let key = person_key(&first, &last, company.as_deref());
+            if profile_key
+                .as_ref()
+                .is_some_and(|p| seen_profiles.contains(p))
+                || seen_people.contains(&key)
+            {
+                skipped += 1;
+                continue;
+            }
+            seen_profiles.extend(profile_key);
+            seen_people.insert(key);
+
+            let website = text(found, "companyWebsite");
+            let lead_id = match &company {
+                None => None,
+                Some(name) => {
+                    let existing = website
+                        .as_deref()
+                        .and_then(normalize_domain)
+                        .and_then(|d| company_by_domain.get(&d).copied())
+                        .or_else(|| {
+                            normalize_company_name(name)
+                                .and_then(|k| company_by_name.get(&k).copied())
+                        });
+                    match existing {
+                        Some(id) => Some(id),
+                        None => {
+                            tx.execute(
+                                "INSERT INTO leads (company_name, website, research_status, user_status, created_at, playbook_id)
+                                 VALUES (?1, ?2, 'pending', 'new', ?3, ?4)",
+                                rusqlite::params![name, website, now, playbook_id],
+                            )?;
+                            let id = tx.last_insert_rowid();
+                            if let Some(key) = normalize_company_name(name) {
+                                company_by_name.insert(key, id);
+                            }
+                            if let Some(domain) = website.as_deref().and_then(normalize_domain) {
+                                company_by_domain.insert(domain, id);
+                            }
+                            events::emit_lead_created(&self.app_handle, id);
+                            Some(id)
+                        }
+                    }
+                }
+            };
+
+            // Reason, then what couldn't be confirmed, then the source on its own line
+            let mut lines: Vec<String> = Vec::new();
+            lines.extend(text(found, "whyTheyFit"));
+            lines.extend(text(found, "notConfirmed").map(|n| format!("Not confirmed: {n}")));
+            lines.extend(text(found, "evidenceUrl").map(|url| format!("Source: {url}")));
+            let found_because = (!lines.is_empty()).then(|| lines.join("\n"));
+            // Anything other than a clear "strong" is worth a look, not more
+            let found_fit = match text(found, "fit").map(|f| f.to_lowercase()) {
+                Some(f) if f == "strong" => "strong",
+                _ => "possible",
+            };
+
+            tx.execute(
+                "INSERT INTO people (first_name, last_name, title, linkedin_url, lead_id, research_status,
+                                     user_status, created_at, playbook_id, found_because, found_fit,
+                                     search_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    first,
+                    last,
+                    text(found, "title"),
+                    linkedin,
+                    lead_id,
+                    now,
+                    playbook_id,
+                    found_because,
+                    found_fit,
+                    search_id
+                ],
+            )?;
+            // 0 refreshes the people list for people without a company
+            touched_companies.insert(lead_id.unwrap_or(0));
+        }
+
+        for lead_id in touched_companies {
+            events::emit_people_bulk_created(&self.app_handle, lead_id);
+        }
+        if skipped > 0 {
+            eprintln!(
+                "[completion_handler] People finder skipped {} duplicate or incomplete people",
+                skipped
+            );
+        }
+        Ok(())
+    }
+
     pub fn new(
         db_conn: Arc<std::sync::Mutex<rusqlite::Connection>>,
         app_handle: AppHandle,
@@ -113,13 +293,41 @@ impl CompletionHandler {
         // Update completion state: started
         self.update_completion_state(&ctx.job_id, CompletionPhase::Started);
 
-        // If job failed, mark entity as failed and return early
+        // If job failed, mark entity as failed and return early. Finders save
+        // as they go, so whatever they wrote before stopping is still useful.
         if !ctx.success {
+            let finder = matches!(
+                metadata.job_type,
+                JobType::LeadFinder | JobType::PeopleFinder
+            );
+            if finder && metadata.primary_output_path.exists() {
+                match self.import_outputs(ctx, metadata) {
+                    Ok(()) => eprintln!(
+                        "[completion_handler] job_id={} Imported partial results after the job stopped",
+                        ctx.job_id
+                    ),
+                    Err(e) => eprintln!(
+                        "[completion_handler] job_id={} Partial results couldn't be read: {}",
+                        ctx.job_id, e
+                    ),
+                }
+            }
             self.mark_entity_failed(metadata);
             self.update_completion_state(&ctx.job_id, CompletionPhase::Failed);
             return Ok(());
         }
 
+        self.import_outputs(ctx, metadata)?;
+        self.update_completion_state(&ctx.job_id, CompletionPhase::Completed);
+        Ok(())
+    }
+
+    /// Read, store, and clean up a job's output files, then notify the UI
+    fn import_outputs(
+        &self,
+        ctx: &CompletionContext,
+        metadata: &JobMetadata,
+    ) -> Result<(), CompletionError> {
         // Phase 1: Verify output files
         let outputs = self.verify_output_files(metadata)?;
         self.update_completion_state(&ctx.job_id, CompletionPhase::FilesVerified);
@@ -136,10 +344,8 @@ impl CompletionHandler {
         self.cleanup_files(metadata)?;
         self.update_completion_state(&ctx.job_id, CompletionPhase::FilesCleanedUp);
 
-        // Phase 5: Emit events and mark complete
+        // Phase 5: Emit events
         self.emit_completion_events(metadata);
-        self.update_completion_state(&ctx.job_id, CompletionPhase::Completed);
-
         Ok(())
     }
 
@@ -294,6 +500,13 @@ impl CompletionHandler {
                     })?;
                 Ok(ParsedOutput::LeadFinder { leads })
             }
+            JobType::PeopleFinder => {
+                let people: Vec<serde_json::Value> = serde_json::from_str(&outputs.primary_content)
+                    .map_err(|e| {
+                        CompletionError::ParseError(format!("Invalid people JSON: {}", e))
+                    })?;
+                Ok(ParsedOutput::PeopleFinder { people })
+            }
         }
     }
 
@@ -388,8 +601,8 @@ impl CompletionHandler {
                             .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
                         } else {
                             tx.execute(
-                                "INSERT INTO people (first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, research_status, user_status, created_at)
-                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'new', ?9)",
+                                "INSERT INTO people (first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, research_status, user_status, created_at, playbook_id)
+                                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', 'new', ?9, (SELECT playbook_id FROM leads WHERE id = ?8))",
                                 rusqlite::params![first_name, last_name, email, title, linkedin_url, management_level, year_joined, lead_id, now],
                             ).map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
                         }
@@ -446,8 +659,11 @@ impl CompletionHandler {
                     .query_row(
                         "SELECT id, name, is_active, required_characteristics, demand_signifiers,
                             tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at
-                     FROM scoring_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1",
-                        [],
+                     FROM scoring_config
+                     WHERE is_active = 1
+                       AND playbook_id = (SELECT playbook_id FROM leads WHERE id = ?1)
+                     ORDER BY id DESC LIMIT 1",
+                        [lead_id],
                         |row| {
                             let required_chars: String = row.get(3)?;
                             let demand_sigs: String = row.get(4)?;
@@ -579,27 +795,91 @@ impl CompletionHandler {
             }
             ParsedOutput::LeadFinder { leads } => {
                 let now = chrono::Utc::now().timestamp();
+                // Jobs started before playbooks existed have no playbook; use the active one
+                let playbook_id = match metadata.playbook_id {
+                    Some(id) => id,
+                    None => db::active_playbook_id(tx)
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?,
+                };
+
+                // Collect existing companies so repeat runs don't add duplicates
+                let mut seen_names = HashSet::new();
+                let mut seen_domains = HashSet::new();
+                {
+                    let mut stmt = tx
+                        // The same company may appear in different playbooks
+                        .prepare("SELECT company_name, website FROM leads WHERE playbook_id = ?1")
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                    let rows = stmt
+                        .query_map([playbook_id], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                        })
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                    for row in rows {
+                        let (name, website) =
+                            row.map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
+                        if let Some(key) = normalize_company_name(&name) {
+                            seen_names.insert(key);
+                        }
+                        if let Some(domain) = website.as_deref().and_then(normalize_domain) {
+                            seen_domains.insert(domain);
+                        }
+                    }
+                }
+
+                let mut skipped = 0;
                 for lead_data in leads {
                     let company_name = lead_data
                         .get("companyName")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Unknown");
                     let website = lead_data.get("website").and_then(|v| v.as_str());
+
+                    let name_key = normalize_company_name(company_name);
+                    let domain_key = website.and_then(normalize_domain);
+                    let is_duplicate = name_key.as_ref().is_some_and(|k| seen_names.contains(k))
+                        || domain_key
+                            .as_ref()
+                            .is_some_and(|d| seen_domains.contains(d));
+                    if is_duplicate {
+                        skipped += 1;
+                        continue;
+                    }
+                    // Also dedupe within this batch
+                    seen_names.extend(name_key);
+                    seen_domains.extend(domain_key);
+
                     let city = lead_data.get("city").and_then(|v| v.as_str());
                     let state = lead_data.get("state").and_then(|v| v.as_str());
                     let country = lead_data.get("country").and_then(|v| v.as_str());
                     let industry = lead_data.get("industry").and_then(|v| v.as_str());
 
                     tx.execute(
-                        "INSERT INTO leads (company_name, website, city, state, country, industry, research_status, user_status, created_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7)",
-                        rusqlite::params![company_name, website, city, state, country, industry, now],
+                        "INSERT INTO leads (company_name, website, city, state, country, industry, research_status, user_status, created_at, playbook_id)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7, ?8)",
+                        rusqlite::params![company_name, website, city, state, country, industry, now, playbook_id],
                     ).map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
 
                     let lead_id = tx.last_insert_rowid();
                     // Emit lead-created event so frontend updates incrementally
                     events::emit_lead_created(&self.app_handle, lead_id);
                 }
+                if skipped > 0 {
+                    eprintln!(
+                        "[completion_handler] Lead finder skipped {} duplicate companies",
+                        skipped
+                    );
+                }
+            }
+            ParsedOutput::PeopleFinder { people } => {
+                // Jobs started before playbooks existed have no playbook; use the active one
+                let playbook_id = match metadata.playbook_id {
+                    Some(id) => id,
+                    None => db::active_playbook_id(tx)
+                        .map_err(|e| CompletionError::DatabaseError(e.to_string()))?,
+                };
+                self.insert_found_people(tx, people, playbook_id, metadata.search_id)
+                    .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
             }
         }
 
@@ -673,8 +953,8 @@ impl CompletionHandler {
                     }
                 }
             }
-            JobType::LeadFinder => {
-                // Events already emitted per-lead during insert in update_database_in_tx
+            JobType::LeadFinder | JobType::PeopleFinder => {
+                // Events already emitted during insert in update_database_in_tx
             }
         }
     }
@@ -695,7 +975,10 @@ impl CompletionHandler {
                         rusqlite::params![metadata.entity_id],
                     );
                 }
-                JobType::Scoring | JobType::Conversation | JobType::LeadFinder => {
+                JobType::Scoring
+                | JobType::Conversation
+                | JobType::LeadFinder
+                | JobType::PeopleFinder => {
                     // No status field to update for these types
                 }
             }
@@ -732,5 +1015,205 @@ fn extract_last_name(p: &serde_json::Value) -> String {
         parts.get(1..).unwrap_or(&[]).join(" ")
     } else {
         String::new()
+    }
+}
+
+/// Hosts that point at a profile page rather than the company's own site,
+/// so they can't be used to tell companies apart
+const SHARED_HOSTS: &[&str] = &[
+    "linkedin.com",
+    "crunchbase.com",
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "github.com",
+];
+
+/// Reduce a website URL to its bare domain for duplicate detection,
+/// e.g. "https://www.Acme.com/about" -> "acme.com"
+/// A LinkedIn profile URL reduced to "linkedin.com/in/<handle>" for matching;
+/// None for anything that isn't a profile (posts, searches, companies)
+fn normalize_linkedin(url: &str) -> Option<String> {
+    let lower = url.trim().to_lowercase();
+    let start = lower.find("linkedin.com/in/")?;
+    let handle = lower[start + "linkedin.com/in/".len()..]
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    if handle.is_empty() {
+        None
+    } else {
+        Some(format!("linkedin.com/in/{handle}"))
+    }
+}
+
+/// False for placeholder company names an AI may write instead of leaving the
+/// field out, which would otherwise create fake companies
+fn is_real_company(name: &str) -> bool {
+    const PLACEHOLDERS: &[&str] = &[
+        "none",
+        "na",
+        "n/a",
+        "unknown",
+        "independent",
+        "self-employed",
+        "self employed",
+        "freelance",
+        "freelancer",
+        "various",
+        "multiple",
+        "stealth",
+        "-",
+    ];
+    let lower = name.trim().to_lowercase();
+    !lower.is_empty()
+        && !PLACEHOLDERS.contains(&lower.as_str())
+        && !lower.starts_with("multiple")
+        && !lower.starts_with("various")
+}
+
+/// First and last name plus company, ignoring case and punctuation
+fn person_key(first: &str, last: &str, company: Option<&str>) -> String {
+    let clean = |s: &str| {
+        s.to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+    };
+    format!(
+        "{}|{}|{}",
+        clean(first),
+        clean(last),
+        company.and_then(normalize_company_name).unwrap_or_default()
+    )
+}
+
+fn normalize_domain(website: &str) -> Option<String> {
+    let lower = website.trim().to_lowercase();
+    let without_scheme = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+        .unwrap_or(&lower);
+    let host = without_scheme
+        .split(['/', '?', '#', ':'])
+        .next()
+        .unwrap_or("");
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    if host.is_empty() || SHARED_HOSTS.contains(&host) {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+/// Reduce a company name to a comparison key that ignores case, punctuation
+/// and legal suffixes, e.g. "Acme, Inc." -> "acme"
+fn normalize_company_name(name: &str) -> Option<String> {
+    const SUFFIXES: &[&str] = &[
+        "inc",
+        "llc",
+        "ltd",
+        "limited",
+        "corp",
+        "corporation",
+        "co",
+        "company",
+        "plc",
+        "gmbh",
+    ];
+    let cleaned: String = name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    let mut words: Vec<&str> = cleaned.split_whitespace().collect();
+    while words.len() > 1 && words.last().is_some_and(|w| SUFFIXES.contains(w)) {
+        words.pop();
+    }
+    let key = words.concat();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
+}
+
+#[cfg(test)]
+mod dedupe_tests {
+    use super::{
+        is_real_company, normalize_company_name, normalize_domain, normalize_linkedin, person_key,
+    };
+
+    #[test]
+    fn placeholder_company_names_are_ignored() {
+        assert!(is_real_company("Adobe"));
+        assert!(!is_real_company("None"));
+        assert!(!is_real_company("N/A"));
+        assert!(!is_real_company("Multiple (BoostUp.ai, Consensus)"));
+        assert!(!is_real_company("Self-employed"));
+    }
+
+    #[test]
+    fn linkedin_profiles_are_matched_by_handle() {
+        assert_eq!(
+            normalize_linkedin("https://www.linkedin.com/in/Jane-Doe/?utm=x"),
+            Some("linkedin.com/in/jane-doe".into())
+        );
+        assert_eq!(
+            normalize_linkedin("https://www.linkedin.com/posts/jane-doe_123"),
+            None
+        );
+        assert_eq!(
+            normalize_linkedin("https://www.linkedin.com/company/acme"),
+            None
+        );
+    }
+
+    #[test]
+    fn people_match_by_name_and_company() {
+        assert_eq!(
+            person_key("Jane", "O'Neil", Some("Acme, Inc.")),
+            person_key("jane", "ONeil", Some("ACME"))
+        );
+        assert_ne!(
+            person_key("Jane", "Doe", Some("Acme")),
+            person_key("Jane", "Doe", Some("Birch"))
+        );
+    }
+
+    #[test]
+    fn domains_ignore_scheme_www_path_and_case() {
+        assert_eq!(
+            normalize_domain("https://www.Acme.com/about"),
+            Some("acme.com".into())
+        );
+        assert_eq!(normalize_domain("acme.com"), Some("acme.com".into()));
+        assert_eq!(
+            normalize_domain("http://acme.com:8080?x=1"),
+            Some("acme.com".into())
+        );
+        assert_eq!(normalize_domain(""), None);
+    }
+
+    #[test]
+    fn shared_profile_hosts_are_not_used_as_keys() {
+        assert_eq!(
+            normalize_domain("https://www.linkedin.com/company/acme"),
+            None
+        );
+    }
+
+    #[test]
+    fn company_names_ignore_case_punctuation_and_suffixes() {
+        assert_eq!(normalize_company_name("Acme, Inc."), Some("acme".into()));
+        assert_eq!(normalize_company_name("ACME LLC"), Some("acme".into()));
+        assert_eq!(normalize_company_name("Acme"), Some("acme".into()));
+        assert_eq!(
+            normalize_company_name("Blue Sky Co"),
+            normalize_company_name("BlueSky")
+        );
+        // A name that is only a suffix is kept rather than emptied
+        assert_eq!(normalize_company_name("Co"), Some("co".into()));
+        assert_eq!(normalize_company_name("  "), None);
     }
 }

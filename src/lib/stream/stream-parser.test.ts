@@ -111,4 +111,47 @@ describe("Claude stream parsing", () => {
       })
     ).toEqual([]);
   });
+
+  describe("rate limit events", () => {
+    const rateLimitEvent = (info: Record<string, unknown>) => ({
+      type: "rate_limit_event",
+      rate_limit_info: info,
+    });
+
+    test("stays silent when usage is well within limits", () => {
+      expect(
+        parse(
+          rateLimitEvent({
+            status: "allowed",
+            rateLimitType: "five_hour",
+            unifiedWindows: {
+              five_hour: { utilization: 0.06, resetsAt: 1791076800 },
+              seven_day: { utilization: 0.49, resetsAt: 1791133200 },
+            },
+          })
+        )
+      ).toEqual([]);
+    });
+
+    test("warns when a usage window is nearly used up", () => {
+      const [entry] = parse(
+        rateLimitEvent({
+          status: "allowed",
+          unifiedWindows: { seven_day: { utilization: 0.92, resetsAt: 1791133200 } },
+        })
+      );
+
+      expect(entry.type).toBe("info");
+      expect(entry.content).toContain("weekly 92% used");
+    });
+
+    test("reports an error when the limit is reached", () => {
+      const [entry] = parse(
+        rateLimitEvent({ status: "rejected", rateLimitType: "five_hour", resetsAt: 1791076800 })
+      );
+
+      expect(entry.type).toBe("error");
+      expect(entry.content).toContain("5-hour limit reached");
+    });
+  });
 });

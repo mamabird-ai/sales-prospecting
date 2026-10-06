@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScoringConfigEditor } from "@/components/scoring/config-editor";
 import { IconTargetArrow, IconLoader2 } from "@tabler/icons-react";
 import { getActiveScoringConfig } from "@/lib/tauri/commands";
+import { useActivePlaybook } from "@/lib/hooks/use-playbooks";
 import { defaultScoringConfig } from "@/lib/types/scoring";
 import type { RequiredCharacteristic, DemandSignifier } from "@/lib/types/scoring";
 
@@ -51,19 +52,27 @@ export default function ScoringPage() {
     queryKey: ["scoring-config"],
     queryFn: fetchScoringConfig,
   });
+  const playbook = useActivePlaybook();
 
   return (
     <>
       <header className="h-10 border-b border-white/5 flex items-center px-4 gap-2">
         <IconTargetArrow className="size-4" />
-        <h1 className="text-sm font-medium">Scoring Configuration</h1>
+        <h1 className="text-sm font-medium">Fit criteria</h1>
       </header>
-      {isLoading || !seed ? (
+      {isLoading || !seed || !playbook ? (
         <div className="flex items-center justify-center h-64">
           <IconLoader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <ScoringConfigEditor seed={seed} />
+        // Remount per playbook: the editor copies the criteria into local state,
+        // and saving stale criteria would overwrite another playbook's
+        <ScoringConfigEditor
+          key={`${playbook.id}-${seed.id ?? "new"}`}
+          seed={seed}
+          playbookId={playbook.id}
+          tierLabels={playbook.tierLabels}
+        />
       )}
     </>
   );

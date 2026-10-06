@@ -7,11 +7,14 @@ import {
   IconBriefcase,
   IconUser,
   IconCircleCheck,
+  IconExternalLink,
   IconLoader2,
 } from "@tabler/icons-react";
 import { PersonProfileTabs } from "@/components/people/person-profile-tabs";
 import { UserStatusSelector } from "@/components/status/user-status-selector";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
+import { ResearchFitTag } from "@/components/people/research-fit-tag";
+import type { ResearchFit } from "@/lib/tauri/types";
 import { validatePersonUserStatus } from "@/lib/constants/status-config";
 import {
   EntityDetailLayout,
@@ -85,6 +88,12 @@ export default function PersonDetailPage() {
       <SidebarSection title="Status">
         <UserStatusSelector type="person" entityId={person.id} currentStatus={userStatus} />
       </SidebarSection>
+
+      {person.researchFit && (
+        <ResearchVerdict fit={person.researchFit} reason={person.researchFitReason} />
+      )}
+
+      {person.foundBecause && <FoundBecause text={person.foundBecause} fit={person.foundFit} />}
 
       <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-4">
         Person
@@ -207,10 +216,75 @@ export default function PersonDetailPage() {
           personProfile={person.personProfile}
           conversationTopics={person.conversationTopics}
           companyName={person.companyName}
+          researchFit={person.researchFit}
         />
       }
       activityContent={activityContent}
       sidebarContent={sidebarContent}
     />
+  );
+}
+
+/** What research concluded about the person, so the fit shows without opening the profile */
+function ResearchVerdict({ fit, reason }: { fit: ResearchFit; reason: string | null }) {
+  return (
+    <div className="mb-6 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Research verdict
+        </h3>
+        <ResearchFitTag fit={fit} />
+      </div>
+      {reason && <p className="text-xs/relaxed text-foreground">{reason}</p>}
+    </div>
+  );
+}
+
+/** Why Find people picked this person, with a link to the post or page it came from */
+function FoundBecause({ text, fit }: { text: string; fit: "strong" | "possible" | null }) {
+  const lines = text.split("\n").map((line) => line.trim());
+  const sourceLine = lines.find((line) => line.startsWith("Source: "));
+  const source = sourceLine?.slice("Source: ".length);
+  const unconfirmed = lines
+    .find((line) => line.startsWith("Not confirmed: "))
+    ?.slice("Not confirmed: ".length);
+  const reason = lines
+    .filter((line) => line && !line.startsWith("Source: ") && !line.startsWith("Not confirmed: "))
+    .join(" ");
+
+  return (
+    <div className="mb-6 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Why they were found
+        </h3>
+        {fit && (
+          <span
+            className={
+              fit === "strong"
+                ? "rounded bg-green-500/10 px-1.5 py-0.5 text-[11px] text-green-400"
+                : "rounded bg-white/5 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+            }
+          >
+            {fit === "strong" ? "Strong fit" : "Worth a look"}
+          </span>
+        )}
+      </div>
+      {reason && <p className="text-xs/relaxed text-foreground">{reason}</p>}
+      {unconfirmed && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Not confirmed: {unconfirmed}</p>
+      )}
+      {source && /^https?:\/\//.test(source) && (
+        <a
+          href={source}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        >
+          <IconExternalLink className="size-3.5" />
+          View source
+        </a>
+      )}
+    </div>
   );
 }

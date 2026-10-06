@@ -47,15 +47,15 @@ pub fn get_lead(conn: &Connection, id: i64) -> SqliteResult<Option<Lead>> {
     }
 }
 
-pub fn get_all_leads(conn: &Connection) -> SqliteResult<Vec<Lead>> {
+pub fn get_all_leads(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<Lead>> {
     let mut stmt = conn.prepare(
         "SELECT id, company_name, website, industry, sub_industry, employees, employee_range,
                 revenue, revenue_range, company_linkedin_url, city, state, country,
                 research_status, researched_at, user_status, created_at, company_profile, notes
-         FROM leads ORDER BY company_name ASC",
+         FROM leads WHERE playbook_id = ?1 ORDER BY company_name ASC",
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![playbook_id], |row| {
         Ok(Lead {
             id: row.get(0)?,
             company_name: row.get(1)?,
@@ -91,8 +91,13 @@ pub fn get_adjacent_leads(
     current_id: i64,
 ) -> SqliteResult<(Option<i64>, Option<i64>, usize, usize)> {
     let all_ids: Vec<i64> = conn
-        .prepare("SELECT id FROM leads ORDER BY company_name ASC")?
-        .query_map([], |row| row.get(0))?
+        // Navigate within the playbook the current lead belongs to
+        .prepare(
+            "SELECT id FROM leads
+             WHERE playbook_id = (SELECT playbook_id FROM leads WHERE id = ?1)
+             ORDER BY company_name ASC",
+        )?
+        .query_map(params![current_id], |row| row.get(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
 
     let total = all_ids.len();
@@ -112,12 +117,12 @@ pub fn get_adjacent_leads(
     Ok((prev_id, next_id, current_index + 1, total))
 }
 
-pub fn insert_lead(conn: &Connection, data: &NewLead) -> SqliteResult<i64> {
+pub fn insert_lead(conn: &Connection, data: &NewLead, playbook_id: i64) -> SqliteResult<i64> {
     let now = chrono::Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO leads (company_name, website, city, state, country, research_status, user_status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6)",
-        params![data.company_name, data.website, data.city, data.state, data.country, now],
+        "INSERT INTO leads (company_name, website, city, state, country, research_status, user_status, created_at, playbook_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7)",
+        params![data.company_name, data.website, data.city, data.state, data.country, now, playbook_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -178,7 +183,8 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit,
+                p.research_fit, p.research_fit_reason
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
          WHERE p.id = ?1",
@@ -211,6 +217,10 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
             company_name: row.get(16)?,
             company_website: row.get(17)?,
             company_industry: row.get(18)?,
+            found_because: row.get(19)?,
+            found_fit: row.get(20)?,
+            research_fit: row.get(21)?,
+            research_fit_reason: row.get(22)?,
         }))
     } else {
         Ok(None)
@@ -221,7 +231,8 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
     let mut stmt = conn.prepare(
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
-                user_status, conversation_topics, conversation_generated_at, created_at
+                user_status, conversation_topics, conversation_generated_at, created_at,
+                found_because, found_fit, research_fit, research_fit_reason
          FROM people WHERE id = ?1",
     )?;
 
@@ -249,6 +260,10 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
             conversation_topics: row.get(13)?,
             conversation_generated_at: row.get(14)?,
             created_at: row.get(15)?,
+            found_because: row.get(16)?,
+            found_fit: row.get(17)?,
+            research_fit: row.get(18)?,
+            research_fit_reason: row.get(19)?,
         }))
     } else {
         Ok(None)
@@ -259,7 +274,8 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
     let mut stmt = conn.prepare(
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
-                user_status, conversation_topics, conversation_generated_at, created_at
+                user_status, conversation_topics, conversation_generated_at, created_at,
+                found_because, found_fit, research_fit, research_fit_reason
          FROM people WHERE lead_id = ?1 ORDER BY last_name ASC, first_name ASC",
     )?;
 
@@ -285,24 +301,30 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
             conversation_topics: row.get(13)?,
             conversation_generated_at: row.get(14)?,
             created_at: row.get(15)?,
+            found_because: row.get(16)?,
+            found_fit: row.get(17)?,
+            research_fit: row.get(18)?,
+            research_fit_reason: row.get(19)?,
         })
     })?;
 
     rows.collect()
 }
 
-pub fn get_all_people(conn: &Connection) -> SqliteResult<Vec<PersonWithCompany>> {
+pub fn get_all_people(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<PersonWithCompany>> {
     let mut stmt = conn.prepare(
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit,
+                p.research_fit, p.research_fit_reason
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
+         WHERE p.playbook_id = ?1
          ORDER BY p.last_name ASC, p.first_name ASC",
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![playbook_id], |row| {
         Ok(PersonWithCompany {
             id: row.get(0)?,
             lead_id: row.get(1)?,
@@ -327,6 +349,10 @@ pub fn get_all_people(conn: &Connection) -> SqliteResult<Vec<PersonWithCompany>>
             company_name: row.get(16)?,
             company_website: row.get(17)?,
             company_industry: row.get(18)?,
+            found_because: row.get(19)?,
+            found_fit: row.get(20)?,
+            research_fit: row.get(21)?,
+            research_fit_reason: row.get(22)?,
         })
     })?;
 
@@ -338,8 +364,13 @@ pub fn get_adjacent_people(
     current_id: i64,
 ) -> SqliteResult<(Option<i64>, Option<i64>, usize, usize)> {
     let all_ids: Vec<i64> = conn
-        .prepare("SELECT id FROM people ORDER BY last_name ASC, first_name ASC")?
-        .query_map([], |row| row.get(0))?
+        // Navigate within the playbook the current person belongs to
+        .prepare(
+            "SELECT id FROM people
+             WHERE playbook_id = (SELECT playbook_id FROM people WHERE id = ?1)
+             ORDER BY last_name ASC, first_name ASC",
+        )?
+        .query_map(params![current_id], |row| row.get(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
 
     let total = all_ids.len();
@@ -359,12 +390,12 @@ pub fn get_adjacent_people(
     Ok((prev_id, next_id, current_index + 1, total))
 }
 
-pub fn insert_person(conn: &Connection, data: &NewPerson) -> SqliteResult<i64> {
+pub fn insert_person(conn: &Connection, data: &NewPerson, playbook_id: i64) -> SqliteResult<i64> {
     let now = chrono::Utc::now().timestamp();
     conn.execute(
-        "INSERT INTO people (first_name, last_name, email, title, linkedin_url, lead_id, research_status, user_status, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7)",
-        params![data.first_name, data.last_name, data.email, data.title, data.linkedin_url, data.lead_id, now],
+        "INSERT INTO people (first_name, last_name, email, title, linkedin_url, lead_id, research_status, user_status, created_at, playbook_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', 'new', ?7, ?8)",
+        params![data.first_name, data.last_name, data.email, data.title, data.linkedin_url, data.lead_id, now, playbook_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -378,8 +409,8 @@ pub fn insert_people_for_lead(
     let now = chrono::Utc::now().timestamp();
     for p in people {
         conn.execute(
-            "INSERT INTO people (first_name, last_name, email, title, linkedin_url, year_joined, lead_id, research_status, user_status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 'new', ?8)",
+            "INSERT INTO people (first_name, last_name, email, title, linkedin_url, year_joined, lead_id, research_status, user_status, created_at, playbook_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 'new', ?8, (SELECT playbook_id FROM leads WHERE id = ?7))",
             params![p.first_name, p.last_name, p.email, p.title, None::<String>, None::<i64>, lead_id, now],
         )?;
     }
@@ -416,13 +447,17 @@ pub fn delete_people(conn: &Connection, person_ids: &[i64]) -> SqliteResult<usiz
 // Prompt Queries
 // ============================================================================
 
-pub fn get_prompt_by_type(conn: &Connection, prompt_type: &str) -> SqliteResult<Option<Prompt>> {
+pub fn get_prompt_by_type(
+    conn: &Connection,
+    playbook_id: i64,
+    prompt_type: &str,
+) -> SqliteResult<Option<Prompt>> {
     let mut stmt = conn.prepare(
         "SELECT id, type, content, created_at, updated_at
-         FROM prompts WHERE type = ?1 ORDER BY id DESC LIMIT 1",
+         FROM prompts WHERE playbook_id = ?1 AND type = ?2 ORDER BY id DESC LIMIT 1",
     )?;
 
-    let mut rows = stmt.query(params![prompt_type])?;
+    let mut rows = stmt.query(params![playbook_id, prompt_type])?;
 
     if let Some(row) = rows.next()? {
         Ok(Some(Prompt {
@@ -439,6 +474,7 @@ pub fn get_prompt_by_type(conn: &Connection, prompt_type: &str) -> SqliteResult<
 
 pub fn save_prompt_by_type(
     conn: &Connection,
+    playbook_id: i64,
     prompt_type: &str,
     content: &str,
 ) -> SqliteResult<i64> {
@@ -447,8 +483,8 @@ pub fn save_prompt_by_type(
     // Check if exists
     let existing: Option<i64> = conn
         .query_row(
-            "SELECT id FROM prompts WHERE type = ?1 ORDER BY id DESC LIMIT 1",
-            params![prompt_type],
+            "SELECT id FROM prompts WHERE playbook_id = ?1 AND type = ?2 ORDER BY id DESC LIMIT 1",
+            params![playbook_id, prompt_type],
             |row| row.get(0),
         )
         .ok();
@@ -461,8 +497,9 @@ pub fn save_prompt_by_type(
         Ok(id)
     } else {
         conn.execute(
-            "INSERT INTO prompts (type, content, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![prompt_type, content, now, now],
+            "INSERT INTO prompts (type, content, created_at, updated_at, playbook_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![prompt_type, content, now, now, playbook_id],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -472,14 +509,17 @@ pub fn save_prompt_by_type(
 // Scoring Config Queries
 // ============================================================================
 
-pub fn get_active_scoring_config(conn: &Connection) -> SqliteResult<Option<ParsedScoringConfig>> {
+pub fn get_active_scoring_config(
+    conn: &Connection,
+    playbook_id: i64,
+) -> SqliteResult<Option<ParsedScoringConfig>> {
     let mut stmt = conn.prepare(
         "SELECT id, name, is_active, required_characteristics, demand_signifiers,
                 tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at
-         FROM scoring_config WHERE is_active = 1 ORDER BY id DESC LIMIT 1",
+         FROM scoring_config WHERE playbook_id = ?1 AND is_active = 1 ORDER BY id DESC LIMIT 1",
     )?;
 
-    let mut rows = stmt.query([])?;
+    let mut rows = stmt.query(params![playbook_id])?;
 
     if let Some(row) = rows.next()? {
         let required_chars: String = row.get(3)?;
@@ -507,6 +547,7 @@ pub fn get_active_scoring_config(conn: &Connection) -> SqliteResult<Option<Parse
 #[allow(clippy::too_many_arguments)]
 pub fn save_scoring_config(
     conn: &Connection,
+    playbook_id: i64,
     name: &str,
     required_characteristics: &str,
     demand_signifiers: &str,
@@ -525,14 +566,17 @@ pub fn save_scoring_config(
         )?;
         Ok(existing_id)
     } else {
-        // Deactivate all existing configs
-        conn.execute("UPDATE scoring_config SET is_active = 0", [])?;
+        // Deactivate this playbook's existing configs
+        conn.execute(
+            "UPDATE scoring_config SET is_active = 0 WHERE playbook_id = ?1",
+            params![playbook_id],
+        )?;
 
         conn.execute(
             "INSERT INTO scoring_config (name, is_active, required_characteristics, demand_signifiers,
-             tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at)
-             VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![name, required_characteristics, demand_signifiers, tier_hot_min, tier_warm_min, tier_nurture_min, now, now],
+             tier_hot_min, tier_warm_min, tier_nurture_min, created_at, updated_at, playbook_id)
+             VALUES (?1, 1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![name, required_characteristics, demand_signifiers, tier_hot_min, tier_warm_min, tier_nurture_min, now, now, playbook_id],
         )?;
         Ok(conn.last_insert_rowid())
     }
@@ -575,8 +619,11 @@ pub fn get_lead_score(conn: &Connection, lead_id: i64) -> SqliteResult<Option<Pa
     }
 }
 
-pub fn get_leads_with_scores(conn: &Connection) -> SqliteResult<Vec<LeadWithScore>> {
-    let leads = get_all_leads(conn)?;
+pub fn get_leads_with_scores(
+    conn: &Connection,
+    playbook_id: i64,
+) -> SqliteResult<Vec<LeadWithScore>> {
+    let leads = get_all_leads(conn, playbook_id)?;
     let mut result = Vec::with_capacity(leads.len());
 
     for lead in leads {
@@ -587,18 +634,18 @@ pub fn get_leads_with_scores(conn: &Connection) -> SqliteResult<Vec<LeadWithScor
     Ok(result)
 }
 
-pub fn get_unscored_leads(conn: &Connection) -> SqliteResult<Vec<Lead>> {
+pub fn get_unscored_leads(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<Lead>> {
     let mut stmt = conn.prepare(
         "SELECT l.id, l.company_name, l.website, l.industry, l.sub_industry, l.employees, l.employee_range,
                 l.revenue, l.revenue_range, l.company_linkedin_url, l.city, l.state, l.country,
                 l.research_status, l.researched_at, l.user_status, l.created_at, l.company_profile, l.notes
          FROM leads l
          LEFT JOIN lead_scores ls ON l.id = ls.lead_id
-         WHERE ls.id IS NULL
+         WHERE ls.id IS NULL AND l.playbook_id = ?1
          ORDER BY l.company_name ASC"
     )?;
 
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![playbook_id], |row| {
         Ok(Lead {
             id: row.get(0)?,
             company_name: row.get(1)?,
@@ -1183,9 +1230,10 @@ pub fn update_settings(conn: &Connection, model: &str, use_chrome: bool) -> Sqli
         "[db] Executing UPDATE settings: model='{}', use_chrome={}",
         model, use_chrome
     );
+    // UPDATE rather than INSERT OR REPLACE, which would reset other columns
+    // such as active_playbook_id to their defaults
     let rows_affected = conn.execute(
-        "INSERT OR REPLACE INTO settings (id, model, use_chrome, updated_at)
-         VALUES (1, ?1, ?2, ?3)",
+        "UPDATE settings SET model = ?1, use_chrome = ?2, updated_at = ?3 WHERE id = 1",
         params![model, use_chrome as i64, now],
     )?;
     eprintln!(
@@ -1239,25 +1287,59 @@ pub fn enrich_lead<C: std::ops::Deref<Target = Connection>>(
 
 /// Enrich person data, only updating fields that are currently NULL
 /// This preserves any user-entered or previously enriched data
+/// Read a research verdict as "strong", "possible", or "unlikely", accepting
+/// the phrasings the prompt invites ("strong fit", "not a fit", ...)
+pub fn normalize_research_fit(raw: &str) -> Option<&'static str> {
+    let text = raw.trim().to_lowercase();
+    if text.is_empty() {
+        return None;
+    }
+    if text.starts_with("strong") || text.starts_with("good") || text.starts_with("yes") {
+        Some("strong")
+    } else if text.starts_with("possible")
+        || text.starts_with("maybe")
+        || text.starts_with("partial")
+        || text.starts_with("moderate")
+    {
+        Some("possible")
+    } else if text.starts_with("unlikely")
+        || text.starts_with("not")
+        || text.starts_with("no")
+        || text.starts_with("poor")
+        || text.starts_with("weak")
+    {
+        Some("unlikely")
+    } else {
+        None
+    }
+}
+
 pub fn enrich_person<C: std::ops::Deref<Target = Connection>>(
     conn: &C,
     person_id: i64,
     e: &PersonEnrichment,
 ) -> SqliteResult<usize> {
+    // Contact details only fill gaps; the verdict is replaced by each new research run
+    let fit = e.fit.as_deref().and_then(normalize_research_fit);
+    let fit_reason = fit.and(e.fit_reason.as_deref()).map(str::trim);
     conn.execute(
         "UPDATE people SET
             email = COALESCE(email, ?1),
             title = COALESCE(title, ?2),
             management_level = COALESCE(management_level, ?3),
             linkedin_url = COALESCE(linkedin_url, ?4),
-            year_joined = COALESCE(year_joined, ?5)
-         WHERE id = ?6",
+            year_joined = COALESCE(year_joined, ?5),
+            research_fit = COALESCE(?6, research_fit),
+            research_fit_reason = CASE WHEN ?6 IS NULL THEN research_fit_reason ELSE ?7 END
+         WHERE id = ?8",
         params![
             e.email,
             e.title,
             e.management_level,
             e.linkedin_url,
             e.year_joined,
+            fit,
+            fit_reason,
             person_id
         ],
     )

@@ -3,7 +3,13 @@ use crate::db::{
     Person, PersonWithCompany,
 };
 use crate::events;
+use rusqlite::Connection;
 use tauri::{AppHandle, State};
+
+/// Lists, prompts, and fit criteria shown in the UI belong to the active playbook
+fn active_playbook(conn: &Connection) -> Result<i64, String> {
+    db::active_playbook_id(conn).map_err(|e| e.to_string())
+}
 
 // ============================================================================
 // Lead Commands
@@ -18,7 +24,7 @@ pub fn get_lead(state: State<'_, DbState>, id: i64) -> Result<Option<Lead>, Stri
 #[tauri::command]
 pub fn get_all_leads(state: State<'_, DbState>) -> Result<Vec<Lead>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::get_all_leads(&conn).map_err(|e| e.to_string())
+    db::get_all_leads(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -53,7 +59,7 @@ pub fn insert_lead(
     data: NewLead,
 ) -> Result<i64, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let id = db::insert_lead(&conn, &data).map_err(|e| e.to_string())?;
+    let id = db::insert_lead(&conn, &data, active_playbook(&conn)?).map_err(|e| e.to_string())?;
     drop(conn);
     events::emit_lead_created(&app, id);
     Ok(id)
@@ -132,7 +138,7 @@ pub fn get_people_for_lead(state: State<'_, DbState>, lead_id: i64) -> Result<Ve
 #[tauri::command]
 pub fn get_all_people(state: State<'_, DbState>) -> Result<Vec<PersonWithCompany>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::get_all_people(&conn).map_err(|e| e.to_string())
+    db::get_all_people(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -154,7 +160,12 @@ pub fn get_adjacent_people(
 #[tauri::command]
 pub fn insert_person(state: State<'_, DbState>, data: NewPerson) -> Result<i64, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::insert_person(&conn, &data).map_err(|e| e.to_string())
+    // A person added to a company belongs to that company's playbook
+    let playbook_id = match data.lead_id {
+        Some(lead_id) => db::lead_playbook_id(&conn, lead_id).map_err(|e| e.to_string())?,
+        None => active_playbook(&conn)?,
+    };
+    db::insert_person(&conn, &data, playbook_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -202,7 +213,7 @@ pub fn get_active_scoring_config(
     state: State<'_, DbState>,
 ) -> Result<Option<ParsedScoringConfig>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::get_active_scoring_config(&conn).map_err(|e| e.to_string())
+    db::get_active_scoring_config(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -218,8 +229,10 @@ pub fn save_scoring_config(
     id: Option<i64>,
 ) -> Result<i64, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let playbook_id = active_playbook(&conn)?;
     db::save_scoring_config(
         &conn,
+        playbook_id,
         &name,
         &required_characteristics,
         &demand_signifiers,
@@ -247,13 +260,13 @@ pub fn get_lead_score(
 #[tauri::command]
 pub fn get_leads_with_scores(state: State<'_, DbState>) -> Result<Vec<LeadWithScore>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::get_leads_with_scores(&conn).map_err(|e| e.to_string())
+    db::get_leads_with_scores(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_unscored_leads(state: State<'_, DbState>) -> Result<Vec<Lead>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    db::get_unscored_leads(&conn).map_err(|e| e.to_string())
+    db::get_unscored_leads(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -308,50 +321,59 @@ pub struct OnboardingStatus {
 #[tauri::command]
 pub fn get_onboarding_status(state: State<'_, DbState>) -> Result<OnboardingStatus, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    // Each playbook walks through its own setup
+    let playbook_id = active_playbook(&conn)?;
 
     // Check for company overview prompt
     let has_company_overview: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM prompts WHERE type = 'company_overview')",
-            [],
+            "SELECT EXISTS(SELECT 1 FROM prompts WHERE type = 'company_overview' AND playbook_id = ?1)",
+            [playbook_id],
             |row| row.get(0),
         )
         .unwrap_or(false);
 
     // Check for any lead
     let has_lead: bool = conn
-        .query_row("SELECT EXISTS(SELECT 1 FROM leads)", [], |row| row.get(0))
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM leads WHERE playbook_id = ?1)",
+            [playbook_id],
+            |row| row.get(0),
+        )
         .unwrap_or(false);
 
     // Check for researched lead
     let has_researched_lead: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM leads WHERE research_status = 'completed')",
-            [],
+            "SELECT EXISTS(SELECT 1 FROM leads WHERE research_status = 'completed' AND playbook_id = ?1)",
+            [playbook_id],
             |row| row.get(0),
         )
         .unwrap_or(false);
 
     // Check for scored lead
     let has_scored_lead: bool = conn
-        .query_row("SELECT EXISTS(SELECT 1 FROM lead_scores)", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM lead_scores ls JOIN leads l ON l.id = ls.lead_id
+             WHERE l.playbook_id = ?1)",
+            [playbook_id],
+            |row| row.get(0),
+        )
         .unwrap_or(false);
 
     // Check for researched person
     let has_researched_person: bool = conn
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM people WHERE research_status = 'completed')",
-            [],
+            "SELECT EXISTS(SELECT 1 FROM people WHERE research_status = 'completed' AND playbook_id = ?1)",
+            [playbook_id],
             |row| row.get(0),
         )
         .unwrap_or(false);
 
     // Check for conversation topics
     let has_conversation_topics: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM people WHERE conversation_topics IS NOT NULL AND conversation_topics != '')",
-        [],
+        "SELECT EXISTS(SELECT 1 FROM people WHERE conversation_topics IS NOT NULL AND conversation_topics != '' AND playbook_id = ?1)",
+        [playbook_id],
         |row| row.get(0)
     ).unwrap_or(false);
 
@@ -363,4 +385,30 @@ pub fn get_onboarding_status(state: State<'_, DbState>) -> Result<OnboardingStat
         has_researched_person,
         has_conversation_topics,
     })
+}
+
+// ============================================================================
+// Known good/bad companies (checking the fit criteria)
+// ============================================================================
+
+#[tauri::command]
+pub fn get_calibration(state: State<'_, DbState>) -> Result<db::Calibration, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_calibration(&conn, active_playbook(&conn)?).map_err(|e| e.to_string())
+}
+
+/// Record whether the user considers a company a good or bad fit, or clear it
+#[tauri::command]
+pub fn set_lead_expected_fit(
+    state: State<'_, DbState>,
+    lead_id: i64,
+    expected_fit: Option<String>,
+) -> Result<(), String> {
+    if let Some(fit) = &expected_fit {
+        if !db::EXPECTED_FITS.contains(&fit.as_str()) {
+            return Err(format!("Unknown fit: {fit}"));
+        }
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::set_expected_fit(&conn, lead_id, expected_fit.as_deref()).map_err(|e| e.to_string())
 }

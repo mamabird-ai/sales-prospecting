@@ -27,4 +27,6 @@ Gather and analyze information about this person including:
 
 8. **Communication Style**: Any insights into how they prefer to communicate based on their public presence?
 
+9. **Fit**: Strong fit, possible fit, or unlikely as a prospect, with a one-sentence reason.
+
 Provide a structured profile that would help a sales professional understand this person and tailor their outreach effectively.

@@ -2,10 +2,11 @@
 
 import * as React from "react";
 import { SelectionProvider } from "./selection-provider";
-import { FloatingActionBar } from "./floating-action-bar";
+import { SelectionToolbar } from "./selection-toolbar";
 import { CollapsibleStatusGroup } from "@/components/ui/collapsible-status-group";
 import type { ActionConfig } from "./action-command-menu";
 import type { SelectionEntityType } from "@/lib/store/selection-store";
+import { useBusyEntities } from "@/lib/hooks/use-job-activity";
 
 type StatusConfigType = "lead_user" | "person_user";
 
@@ -24,6 +25,10 @@ interface SelectableEntityListProps<T, S extends string> {
   renderRow: (item: T) => React.ReactNode;
   /** Actions available for selected items */
   actions: ActionConfig[];
+  /** Toolbar content shown when nothing is selected */
+  toolbar?: React.ReactNode;
+  /** Shown in place of the groups when there are no items, e.g. a filter hid them all */
+  emptyContent?: React.ReactNode;
 }
 
 export function SelectableEntityList<T, S extends string>({
@@ -34,7 +39,11 @@ export function SelectableEntityList<T, S extends string>({
   getItemId,
   renderRow,
   actions,
+  toolbar,
+  emptyContent,
 }: SelectableEntityListProps<T, S>) {
+  const busy = useBusyEntities(entityType);
+
   // Collect all item IDs in display order
   const allIds = React.useMemo(() => {
     const ids: number[] = [];
@@ -48,8 +57,10 @@ export function SelectableEntityList<T, S extends string>({
   }, [groupedItems, statusOrder, getItemId]);
 
   return (
-    <SelectionProvider entityType={entityType} allIds={allIds}>
+    <SelectionProvider entityType={entityType} allIds={allIds} busy={busy}>
+      <SelectionToolbar actions={actions} idleContent={toolbar} />
       <div className="flex-1 overflow-auto">
+        {allIds.length === 0 && emptyContent}
         {statusOrder.map((status) => {
           const items = groupedItems[status];
           if (!items || items.length === 0) return null;
@@ -68,7 +79,6 @@ export function SelectableEntityList<T, S extends string>({
           );
         })}
       </div>
-      <FloatingActionBar actions={actions} />
     </SelectionProvider>
   );
 }

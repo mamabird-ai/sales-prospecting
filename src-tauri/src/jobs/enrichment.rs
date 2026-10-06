@@ -31,4 +31,7 @@ pub struct PersonEnrichment {
     pub management_level: Option<String>,
     pub linkedin_url: Option<String>,
     pub year_joined: Option<i64>,
+    /// Research's verdict on the person: "strong", "possible", or "unlikely"
+    pub fit: Option<String>,
+    pub fit_reason: Option<String>,
 }

@@ -5,6 +5,7 @@ import { tierConfigs } from "@/lib/types/scoring";
 import { cn, formatLongDate } from "@/lib/utils";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { Bars } from "./score-bars";
+import { useTierLabels } from "@/lib/hooks/use-playbooks";
 
 interface ScoreBreakdownProps {
   score: ParsedLeadScore;
@@ -12,6 +13,7 @@ interface ScoreBreakdownProps {
 
 export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
   const tierConfig = tierConfigs[score.tier];
+  const tierLabel = useTierLabels()[score.tier];
 
   return (
     <div className="space-y-6">
@@ -20,7 +22,7 @@ export function ScoreBreakdown({ score }: ScoreBreakdownProps) {
           <span className={cn("text-2xl font-bold tabular-nums", tierConfig.color)}>
             {score.totalScore}
           </span>
-          <span className={cn("text-sm font-medium", tierConfig.color)}>{tierConfig.label}</span>
+          <span className={cn("text-sm font-medium", tierConfig.color)}>{tierLabel}</span>
         </div>
         <Bars value={score.totalScore} tier={score.tier} size="lg" />
         <div className="text-xs text-muted-foreground">

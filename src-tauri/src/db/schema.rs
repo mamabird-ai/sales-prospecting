@@ -39,6 +39,27 @@ pub struct NewLead {
 }
 
 // ============================================================================
+// People Searches
+// ============================================================================
+
+/// A past Find people search and what it turned up
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeopleSearch {
+    pub id: i64,
+    pub description: String,
+    /// "standard" (one job) or "wide" (one job per part of the web)
+    pub size: String,
+    pub created_at: i64,
+    /// People this search added to the playbook
+    pub people_found: i64,
+    /// Of those, how many Find people marked as a strong fit
+    pub strong_fits: i64,
+    /// Of those, how many the user has moved past "New"
+    pub people_acted_on: i64,
+}
+
+// ============================================================================
 // Person Table
 // ============================================================================
 
@@ -61,6 +82,13 @@ pub struct Person {
     pub conversation_topics: Option<String>,
     pub conversation_generated_at: Option<i64>,
     pub created_at: i64,
+    /// Why Find people picked this person, with a link to the evidence
+    pub found_because: Option<String>,
+    /// How well Find people thinks they match: "strong" or "possible"
+    pub found_fit: Option<String>,
+    /// Research's verdict after reading about them: "strong", "possible", or "unlikely"
+    pub research_fit: Option<String>,
+    pub research_fit_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +113,13 @@ pub struct PersonWithCompany {
     pub company_name: Option<String>,
     pub company_website: Option<String>,
     pub company_industry: Option<String>,
+    /// Why Find people picked this person, with a link to the evidence
+    pub found_because: Option<String>,
+    /// How well Find people thinks they match: "strong" or "possible"
+    pub found_fit: Option<String>,
+    /// Research's verdict after reading about them: "strong", "possible", or "unlikely"
+    pub research_fit: Option<String>,
+    pub research_fit_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,4 +272,50 @@ pub struct Settings {
     pub model: String,
     pub use_chrome: bool,
     pub updated_at: i64,
+}
+
+// ============================================================================
+// Playbooks
+// ============================================================================
+
+/// Display names for the four scoring tiers. The stored tier values stay
+/// hot/warm/nurture/disqualified; only the labels change per playbook.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TierLabels {
+    pub hot: String,
+    pub warm: String,
+    pub nurture: String,
+    pub disqualified: String,
+}
+
+impl Default for TierLabels {
+    fn default() -> Self {
+        Self {
+            hot: "Hot".to_string(),
+            warm: "Warm".to_string(),
+            nurture: "Nurture".to_string(),
+            disqualified: "Disqualified".to_string(),
+        }
+    }
+}
+
+/// A separate set of companies, people, research instructions, and fit
+/// criteria for one goal, such as sales prospecting or finding design partners
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Playbook {
+    pub id: i64,
+    pub name: String,
+    pub tier_labels: TierLabels,
+    pub lead_count: i64,
+    pub person_count: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaybooksState {
+    pub playbooks: Vec<Playbook>,
+    pub active_id: i64,
 }

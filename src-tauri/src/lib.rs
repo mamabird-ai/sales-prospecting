@@ -125,6 +125,10 @@ pub fn run() {
             commands::start_scoring,
             // Find leads commands
             commands::start_find_leads,
+            commands::start_find_people,
+            commands::create_people_search,
+            commands::delete_people_search,
+            commands::get_people_searches,
             // Conversation commands
             commands::start_conversation_generation,
             // Onboarding commands
@@ -143,6 +147,18 @@ pub fn run() {
             // Settings commands
             commands::get_settings,
             commands::update_settings,
+            // Playbook commands
+            commands::get_playbooks,
+            commands::create_playbook,
+            commands::rename_playbook,
+            commands::update_tier_labels,
+            commands::delete_playbook,
+            commands::set_active_playbook,
+            // Known good/bad companies
+            commands::get_calibration,
+            commands::set_lead_expected_fit,
+            // Drafting the company profile from a website
+            commands::draft_company_profile,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -11,6 +11,8 @@ use tauri::AppHandle;
 /// Maximum age (in seconds) for a job to be considered "running" before it's stale.
 /// Jobs older than this are assumed to have died without proper cleanup.
 const STALE_JOB_THRESHOLD_SECS: i64 = 600; // 10 minutes
+/// Finished jobs older than this are deleted on startup; recent ones feed time estimates
+const JOB_HISTORY_RETENTION_DAYS: i64 = 30;
 
 /// Result of stale job detection
 #[derive(Debug, serde::Serialize)]
@@ -192,6 +194,91 @@ pub fn recover_stale_jobs(conn: &Connection, app: &AppHandle) -> Result<usize, S
     Ok(recovered)
 }
 
+/// True when `pid` is still a running Claude CLI process. Checking the command
+/// guards against the system having reused the id for something else.
+#[cfg(unix)]
+fn is_claude_process(pid: i64) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains("claude"))
+        .unwrap_or(false)
+}
+
+/// On startup, every queued or running job belongs to the previous app
+/// session, since the queue lives in memory. Stop any Claude process still
+/// working on one (it would keep spending with nobody to import its results),
+/// mark the job stopped, and reset what it was working on.
+pub fn recover_orphaned_jobs(conn: &Connection, app: &AppHandle) -> Result<usize, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, job_type, entity_id, pid FROM jobs WHERE status IN ('queued', 'running')",
+        )
+        .map_err(|e| e.to_string())?;
+    let jobs = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    let now = chrono::Utc::now().timestamp();
+    for (id, job_type, entity_id, pid) in &jobs {
+        #[cfg(unix)]
+        if let Some(pid) = pid.filter(|pid| *pid > 0 && is_claude_process(*pid)) {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+            let _ = kill(Pid::from_raw(pid as i32), Signal::SIGTERM);
+            eprintln!(
+                "[recovery] Stopped leftover Claude process {} for job {}",
+                pid, id
+            );
+        }
+
+        conn.execute(
+            "UPDATE jobs SET status = 'cancelled', error_message = 'Stopped because the app restarted', completed_at = ?1 WHERE id = ?2",
+            params![now, id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        match job_type.as_str() {
+            "company_research" => {
+                conn.execute(
+                    "UPDATE leads SET research_status = 'pending' WHERE id = ?1 AND research_status = 'in_progress'",
+                    params![entity_id],
+                )
+                .map_err(|e| e.to_string())?;
+                events::emit_lead_updated(app, *entity_id);
+            }
+            "person_research" => {
+                conn.execute(
+                    "UPDATE people SET research_status = 'pending' WHERE id = ?1 AND research_status = 'in_progress'",
+                    params![entity_id],
+                )
+                .map_err(|e| e.to_string())?;
+                let lead_id: Option<i64> = conn
+                    .query_row(
+                        "SELECT lead_id FROM people WHERE id = ?1",
+                        params![entity_id],
+                        |row| row.get::<_, Option<i64>>(0),
+                    )
+                    .ok()
+                    .flatten();
+                events::emit_person_updated(app, *entity_id, lead_id);
+            }
+            _ => {}
+        }
+    }
+    Ok(jobs.len())
+}
+
 /// Recover stuck entities - entities with "in_progress" status but no active job
 pub fn recover_stuck_entities(conn: &Connection, app: &AppHandle) -> Result<usize, String> {
     let stuck_leads = detect_stuck_leads(conn)?;
@@ -250,10 +337,10 @@ pub fn recover_on_startup(conn: &Arc<Mutex<Connection>>, app: &AppHandle) {
         }
     };
 
-    // Recover stale jobs
-    match recover_stale_jobs(&conn_guard, app) {
-        Ok(count) if count > 0 => eprintln!("[recovery] Recovered {} stale jobs", count),
-        Err(e) => eprintln!("[recovery] Failed to recover stale jobs: {}", e),
+    // Jobs left over from the previous session, whatever their age
+    match recover_orphaned_jobs(&conn_guard, app) {
+        Ok(count) if count > 0 => eprintln!("[recovery] Stopped {} leftover jobs", count),
+        Err(e) => eprintln!("[recovery] Failed to stop leftover jobs: {}", e),
         _ => {}
     }
 
@@ -261,6 +348,14 @@ pub fn recover_on_startup(conn: &Arc<Mutex<Connection>>, app: &AppHandle) {
     match recover_stuck_entities(&conn_guard, app) {
         Ok(count) if count > 0 => eprintln!("[recovery] Recovered {} stuck entities", count),
         Err(e) => eprintln!("[recovery] Failed to recover stuck entities: {}", e),
+        _ => {}
+    }
+
+    // Prune old job history and logs. Closing a tab in the Activity panel only
+    // hides it, so this is what keeps the jobs tables from growing forever.
+    match crate::db::cleanup_old_jobs(&conn_guard, JOB_HISTORY_RETENTION_DAYS) {
+        Ok(count) if count > 0 => eprintln!("[recovery] Pruned {} old jobs", count),
+        Err(e) => eprintln!("[recovery] Failed to prune old jobs: {}", e),
         _ => {}
     }
 

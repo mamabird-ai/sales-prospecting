@@ -11,7 +11,7 @@ bun run tauri:dev
 # Build production app
 bun run tauri:build
 
-# Frontend only (Vite dev server on localhost:3000)
+# Frontend only (Vite dev server on localhost:1420)
 bun run dev
 
 # Lint and format
@@ -55,7 +55,7 @@ src-tauri/src/               # Rust backend
 │   ├── research.rs          # Job management (research, scoring)
 │   └── prompts.rs           # Prompt storage
 ├── db/                      # SQLite schema and queries
-├── jobs/                    # Async job queue (5 concurrent, 10min timeout)
+├── jobs/                    # Async job queue (5 concurrent, 10-15 min timeouts)
 └── events.rs                # Event emission to frontend
 ```
 
@@ -72,7 +72,8 @@ src-tauri/src/               # Rust backend
 Research/scoring jobs spawn Claude CLI subprocesses:
 
 - Max 5 concurrent jobs (semaphore-based)
-- 10-minute timeout per job
+- 10-minute timeout per job (15 for Find Leads and Find people, which keep partial results)
+- Claude runs without shell access or sub-agents (`--disallowedTools Bash,Agent,Task`)
 - Output streams to frontend via Tauri channels
 - Results parsed and stored in SQLite on completion
 
@@ -85,9 +86,17 @@ Research/scoring jobs spawn Claude CLI subprocesses:
 
 ## Database
 
-Location: `~/.local/share/qual/data.db`
+Location: `qual/data.db` in the OS data directory (`dirs::data_dir()`): `~/Library/Application Support/qual/data.db` on macOS, `~/.local/share/qual/data.db` on Linux
 
-Tables: `leads`, `people`, `prompts`, `scoring_config`, `lead_scores`
+Tables: `playbooks`, `leads`, `people`, `prompts`, `scoring_config`, `lead_scores`, `jobs`, `job_logs`, `settings`
+
+### Playbooks
+
+A playbook is a separate set of companies, people, prompts, fit criteria, and tier names for one goal (e.g. sales prospects, design partners). `leads`, `people`, `prompts`, and `scoring_config` have a `playbook_id`; `settings.active_playbook_id` is the one shown in the UI.
+
+- UI-facing commands read and write the active playbook
+- Jobs use the playbook of the company or person they work on, not the active one; Find Leads records its playbook in `JobMetadata.playbook_id`
+- Built-in templates live in `src-tauri/src/prompts/templates/`
 
 ## Important Files
 

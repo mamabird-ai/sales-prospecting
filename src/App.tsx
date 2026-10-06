@@ -16,6 +16,7 @@ const LeadListPage = lazy(() => import("@/pages/lead/list"));
 const LeadDetailPage = lazy(() => import("@/pages/lead/detail"));
 const PeopleListPage = lazy(() => import("@/pages/people/list"));
 const PersonDetailPage = lazy(() => import("@/pages/people/detail"));
+const AboutPage = lazy(() => import("@/pages/about"));
 const PromptPage = lazy(() => import("@/pages/prompt"));
 const ScoringPage = lazy(() => import("@/pages/scoring"));
 
@@ -24,7 +25,7 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background bg-terminal-pattern">
+      <div className="flex h-screen items-center justify-center bg-background">
         <IconLoader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -33,7 +34,7 @@ function AppContent() {
   return (
     <>
       <CompanyOverviewDialog hasCompanyOverview={onboardingStatus?.hasCompanyOverview ?? false} />
-      <div className="flex h-screen bg-background bg-terminal-pattern font-sans antialiased">
+      <div className="flex h-screen bg-background font-sans antialiased">
         <Sidebar />
         <StreamPanelWrapper>
           <Suspense
@@ -49,6 +50,7 @@ function AppContent() {
               <Route path="/lead/:id" element={<LeadDetailPage />} />
               <Route path="/people" element={<PeopleListPage />} />
               <Route path="/people/:id" element={<PersonDetailPage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/prompt" element={<PromptPage />} />
               <Route path="/scoring" element={<ScoringPage />} />
             </Routes>

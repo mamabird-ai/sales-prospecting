@@ -10,6 +10,7 @@ interface SelectionState {
   // Actions
   select: (id: number) => void;
   deselect: (id: number) => void;
+  deselectMany: (ids: number[]) => void;
   toggle: (id: number) => void;
   selectAll: (ids: number[]) => void;
   selectRange: (fromId: number, toId: number, allIds: number[]) => void;
@@ -38,6 +39,14 @@ export const useSelectionStore = create<SelectionState>()((set, get) => ({
     set((state) => {
       const newSet = new Set(state.selectedIds);
       newSet.delete(id);
+      return { selectedIds: newSet };
+    }),
+
+  deselectMany: (ids) =>
+    set((state) => {
+      if (!ids.some((id) => state.selectedIds.has(id))) return state;
+      const newSet = new Set(state.selectedIds);
+      ids.forEach((id) => newSet.delete(id));
       return { selectedIds: newSet };
     }),
 

@@ -16,6 +16,12 @@ import type {
   OnboardingStatus,
   Job,
   JobLog,
+  PlaybooksState,
+  PlaybookSource,
+  TierLabels,
+  Calibration,
+  PeopleSearch,
+  PeopleSearchSize,
 } from "./types";
 
 // ============================================================================
@@ -184,6 +190,44 @@ export async function startPersonResearch(
   });
 }
 
+/** Where a Find people search concentrates; a wide search runs all three */
+export type SearchFocus = "linkedin" | "talks" | "startups";
+
+export async function startFindPeople(
+  description: string,
+  onEvent: (event: StreamEvent) => void,
+  focus?: SearchFocus,
+  searchId?: number
+): Promise<ResearchResult> {
+  const channel = new Channel<StreamEvent>();
+  channel.onmessage = onEvent;
+
+  return invoke("start_find_people", {
+    description,
+    focus: focus ?? null,
+    searchId: searchId ?? null,
+    onEvent: channel,
+  });
+}
+
+/** Record a Find people search so the people its jobs find count toward it */
+export async function createPeopleSearch(
+  description: string,
+  size: PeopleSearchSize
+): Promise<number> {
+  return invoke("create_people_search", { description, size });
+}
+
+/** Forget a search whose jobs couldn't start */
+export async function deletePeopleSearch(id: number): Promise<void> {
+  return invoke("delete_people_search", { id });
+}
+
+/** Past searches in the active playbook, newest first */
+export async function getPeopleSearches(): Promise<PeopleSearch[]> {
+  return invoke("get_people_searches");
+}
+
 export async function startFindLeads(
   icpDescription: string,
   onEvent: (event: StreamEvent) => void
@@ -222,15 +266,20 @@ export async function startScoring(
 // Conversation Generation Commands
 // ============================================================================
 
+/** "not_a_fit" writes for someone research judged unlikely: a smaller, honest ask */
+export type MessageMode = "not_a_fit";
+
 export async function startConversationGeneration(
   personId: number,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
+  mode?: MessageMode
 ): Promise<ResearchResult> {
   const channel = new Channel<StreamEvent>();
   channel.onmessage = onEvent;
 
   return invoke("start_conversation_generation", {
     personId,
+    mode: mode ?? null,
     onEvent: channel,
   });
 }
@@ -279,4 +328,68 @@ export async function getSettings(): Promise<Settings> {
 
 export async function updateSettings(model: string, useChrome: boolean): Promise<void> {
   return invoke("update_settings", { model, useChrome });
+}
+
+// ============================================================================
+// Playbook Commands
+// ============================================================================
+
+export async function getPlaybooks(): Promise<PlaybooksState> {
+  return invoke("get_playbooks");
+}
+
+export async function createPlaybook(
+  name: string,
+  source: PlaybookSource
+): Promise<PlaybooksState> {
+  return invoke("create_playbook", { name, source });
+}
+
+export async function renamePlaybook(id: number, name: string): Promise<PlaybooksState> {
+  return invoke("rename_playbook", { id, name });
+}
+
+export async function updateTierLabels(id: number, labels: TierLabels): Promise<PlaybooksState> {
+  return invoke("update_tier_labels", { id, labels });
+}
+
+export async function deletePlaybook(id: number): Promise<PlaybooksState> {
+  return invoke("delete_playbook", { id });
+}
+
+export async function setActivePlaybook(id: number): Promise<PlaybooksState> {
+  return invoke("set_active_playbook", { id });
+}
+
+// ============================================================================
+// Known good/bad companies
+// ============================================================================
+
+export async function getCalibration(): Promise<Calibration> {
+  return invoke("get_calibration");
+}
+
+export async function setLeadExpectedFit(
+  leadId: number,
+  expectedFit: "good" | "bad" | null
+): Promise<void> {
+  return invoke("set_lead_expected_fit", { leadId, expectedFit });
+}
+
+// ============================================================================
+// Company profile
+// ============================================================================
+
+export interface CompanyDraft {
+  companyName: string | null;
+  product: string | null;
+  problem: string | null;
+  customer: string | null;
+  notAFit: string | null;
+  stage: string | null;
+}
+
+/** Have Claude read a website and draft the company profile fields */
+export async function draftCompanyProfile(website: string): Promise<CompanyDraft> {
+  return invoke("draft_company_profile", { website });
 }

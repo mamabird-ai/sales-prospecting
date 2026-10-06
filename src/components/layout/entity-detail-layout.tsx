@@ -10,6 +10,7 @@ import {
   IconLoader2,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { toDate } from "@/lib/utils";
 
 interface NoteConfig {
   id: number;
@@ -204,7 +205,7 @@ export function ActivityItem({ icon, iconBgColor, label, timestamp }: ActivityIt
 }
 
 function formatActivityDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString("en-US", {
+  return toDate(timestamp).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",

@@ -1,4 +1,9 @@
+pub mod calibration;
+pub mod people_searches;
+pub mod playbooks;
 pub mod queries;
+#[cfg(test)]
+mod research_fit_tests;
 pub mod schema;
 pub mod seed;
 
@@ -6,6 +11,9 @@ use rusqlite::{Connection, Result as SqliteResult};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+pub use calibration::*;
+pub use people_searches::*;
+pub use playbooks::*;
 pub use queries::*;
 pub use schema::*;
 
@@ -281,6 +289,88 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
         eprintln!("[db] Migration complete: people table updated");
     }
 
+    // Migration: playbooks. Each playbook has its own companies, people, prompts,
+    // and fit criteria. Existing data becomes the first playbook, "Sales prospects".
+    // Runs after the people rebuild above, which copies rows with SELECT *.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS playbooks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            tier_labels TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        INSERT INTO playbooks (id, name, created_at, updated_at)
+        SELECT 1, 'Sales prospects', strftime('%s', 'now'), strftime('%s', 'now')
+        WHERE NOT EXISTS (SELECT 1 FROM playbooks);
+        "#,
+    )?;
+    let table_exists = |table: &str| -> bool {
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [table],
+            |row| row.get(0),
+        )
+        .unwrap_or(false)
+    };
+    for table in ["leads", "people", "prompts", "scoring_config"] {
+        if !table_exists(table) {
+            continue;
+        }
+        if !column_exists(conn, table, "playbook_id") {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN playbook_id INTEGER NOT NULL DEFAULT 1"),
+                [],
+            )?;
+        }
+        conn.execute(
+            &format!("CREATE INDEX IF NOT EXISTS idx_{table}_playbook ON {table}(playbook_id)"),
+            [],
+        )?;
+    }
+    // Why Find people picked a person, with a link to the evidence
+    if table_exists("people") && !column_exists(conn, "people", "found_because") {
+        conn.execute("ALTER TABLE people ADD COLUMN found_because TEXT", [])?;
+    }
+    // How well Find people thinks a person matches: "strong" or "possible"
+    if table_exists("people") && !column_exists(conn, "people", "found_fit") {
+        conn.execute("ALTER TABLE people ADD COLUMN found_fit TEXT", [])?;
+    }
+    // Past Find people searches, so a description can be reused and its results compared
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS people_searches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playbook_id INTEGER NOT NULL DEFAULT 1,
+            description TEXT NOT NULL,
+            size TEXT NOT NULL DEFAULT 'standard',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_people_searches_playbook ON people_searches(playbook_id);
+        "#,
+    )?;
+    // Research's verdict on a person ("strong", "possible", "unlikely") and why
+    if table_exists("people") && !column_exists(conn, "people", "research_fit") {
+        conn.execute("ALTER TABLE people ADD COLUMN research_fit TEXT", [])?;
+        conn.execute("ALTER TABLE people ADD COLUMN research_fit_reason TEXT", [])?;
+    }
+    // Which Find people search added a person, for the outcome shown next to each past search
+    if table_exists("people") && !column_exists(conn, "people", "search_id") {
+        conn.execute("ALTER TABLE people ADD COLUMN search_id INTEGER", [])?;
+    }
+    // The user's own verdict on a company, for checking the fit criteria
+    if table_exists("leads") && !column_exists(conn, "leads", "expected_fit") {
+        conn.execute("ALTER TABLE leads ADD COLUMN expected_fit TEXT", [])?;
+    }
+    if table_exists("settings") && !column_exists(conn, "settings", "active_playbook_id") {
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN active_playbook_id INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -312,6 +402,7 @@ mod tests {
                 state: None,
                 country: None,
             },
+            1,
         )
         .unwrap();
 

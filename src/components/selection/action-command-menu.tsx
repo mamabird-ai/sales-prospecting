@@ -10,7 +10,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { useSelectionStore } from "@/lib/store/selection-store";
+import type { JobType } from "@/lib/tauri/types";
 import { cn } from "@/lib/utils";
 
 export interface ActionConfig {
@@ -20,6 +20,18 @@ export interface ActionConfig {
   group: string;
   shortcut?: string;
   destructive?: boolean;
+  /** Set when the action queues one Claude job of this type per selected item */
+  jobType?: JobType;
+  /**
+   * Confirmation copy. Destructive actions always confirm; job actions confirm
+   * when the batch is bigger than one round of parallel jobs.
+   */
+  confirm?: {
+    /** Receives the counted items, e.g. "20 companies" */
+    title: (items: string) => string;
+    actionLabel: string;
+    description?: string;
+  };
   onExecute: (selectedIds: number[]) => void | Promise<void>;
 }
 
@@ -27,12 +39,15 @@ interface ActionCommandMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   actions: ActionConfig[];
+  onSelectAction: (action: ActionConfig) => void;
 }
 
-export function ActionCommandMenu({ open, onOpenChange, actions }: ActionCommandMenuProps) {
-  const getSelectedIds = useSelectionStore((state) => state.getSelectedIds);
-  const clearAll = useSelectionStore((state) => state.clearAll);
-
+export function ActionCommandMenu({
+  open,
+  onOpenChange,
+  actions,
+  onSelectAction,
+}: ActionCommandMenuProps) {
   // Group actions by category
   const groupedActions = React.useMemo(() => {
     const groups: Record<string, ActionConfig[]> = {};
@@ -44,26 +59,6 @@ export function ActionCommandMenu({ open, onOpenChange, actions }: ActionCommand
     });
     return groups;
   }, [actions]);
-
-  const handleSelect = React.useCallback(
-    async (action: ActionConfig) => {
-      const selectedIds = getSelectedIds();
-      onOpenChange(false);
-
-      try {
-        await action.onExecute(selectedIds);
-        // Clear selection after successful action (optional, depends on UX preference)
-        if (!action.destructive) {
-          // Keep selection for non-destructive actions so user can run multiple actions
-        } else {
-          clearAll();
-        }
-      } catch (error) {
-        console.error(`Failed to execute action ${action.id}:`, error);
-      }
-    },
-    [getSelectedIds, onOpenChange, clearAll]
-  );
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -77,7 +72,10 @@ export function ActionCommandMenu({ open, onOpenChange, actions }: ActionCommand
               return (
                 <CommandItem
                   key={action.id}
-                  onSelect={() => handleSelect(action)}
+                  onSelect={() => {
+                    onOpenChange(false);
+                    onSelectAction(action);
+                  }}
                   className={cn(
                     action.destructive && "text-destructive data-[selected=true]:text-destructive"
                   )}

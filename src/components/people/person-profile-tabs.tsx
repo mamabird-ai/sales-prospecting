@@ -9,6 +9,8 @@ import { useIsJobActive } from "@/lib/hooks/use-stream-tabs";
 import { startPersonResearch, startConversationGeneration } from "@/lib/tauri/commands";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 import { toast } from "sonner";
+import { toastJobStarted } from "@/lib/stream/job-toasts";
+import type { ResearchFit } from "@/lib/tauri/types";
 
 interface PersonProfileTabsProps {
   personId: number;
@@ -16,6 +18,7 @@ interface PersonProfileTabsProps {
   personProfile: string | null;
   conversationTopics: string | null;
   companyName: string | null;
+  researchFit: ResearchFit | null;
 }
 
 export function PersonProfileTabs({
@@ -24,6 +27,7 @@ export function PersonProfileTabs({
   personProfile,
   conversationTopics,
   companyName,
+  researchFit,
 }: PersonProfileTabsProps) {
   const [activeTab, setActiveTab] = useState<"profile" | "conversation">("profile");
   const isResearchJobActive = useIsJobActive(personId, "person");
@@ -33,9 +37,9 @@ export function PersonProfileTabs({
     try {
       // Start research - backend will emit events
       // Stream logs to Zustand via handleStreamEvent
-      await startPersonResearch(personId, handleStreamEvent);
+      const result = await startPersonResearch(personId, handleStreamEvent);
 
-      toast.success(`Started research for ${personName}`);
+      toastJobStarted(`Started research for ${personName}`, result.jobId);
     } catch (error) {
       console.error("Failed to start research:", error);
       toast.error("Failed to start research");
@@ -46,9 +50,14 @@ export function PersonProfileTabs({
     try {
       // Start conversation - backend will emit events
       // Stream logs to Zustand via handleStreamEvent
-      await startConversationGeneration(personId, handleStreamEvent);
+      // Someone research judged unlikely gets a message written for that situation
+      const result = await startConversationGeneration(
+        personId,
+        handleStreamEvent,
+        researchFit === "unlikely" ? "not_a_fit" : undefined
+      );
 
-      toast.success(`Started conversation generation for ${personName}`);
+      toastJobStarted(`Started talking points for ${personName}`, result.jobId);
     } catch (error) {
       console.error("Failed to start conversation generation:", error);
       toast.error("Failed to start conversation generation");
@@ -132,6 +141,7 @@ export function PersonProfileTabs({
             personName={personName}
             conversationTopics={conversationTopics}
             companyName={companyName}
+            researchFit={researchFit}
           />
         )}
       </div>

@@ -432,12 +432,15 @@ const PERSON_ENRICHMENT_SCHEMA: &str = r#"This file should contain verified pers
   "title": "Senior Vice President of Sales",
   "managementLevel": "VP",
   "linkedinUrl": "https://linkedin.com/in/...",
-  "yearJoined": 2020
+  "yearJoined": 2020,
+  "fit": "strong",
+  "fitReason": "Runs a 40-person beta and wrote about losing feedback across Slack and spreadsheets."
 }
 ```
 
 Valid managementLevel values: C-Level, VP, Director, Manager, IC
-IMPORTANT: Only include fields with verified data. Omit fields if uncertain."#;
+fit is your verdict from the research, matching the profile: "strong", "possible", or "unlikely". Always include fit and a one-sentence fitReason.
+IMPORTANT: For every other field, only include verified data. Omit fields if uncertain."#;
 
 fn build_research_prompt(
     prompt: &str,
@@ -607,10 +610,10 @@ pub async fn start_find_leads(
         secondary_output_path: None,
         enrichment_output_path: None,
         playbook_id: Some(playbook_id),
+        search_id: None,
     };
 
     let entity_label = format!("Find Leads: {}", truncate_chars(&icp_description, 50));
-        search_id: None,
 
     let job_id = queue
         .start_job_with_callback(
@@ -656,10 +659,10 @@ pub async fn start_find_people(
     queue: State<'_, JobQueue>,
     description: String,
     focus: Option<String>,
+    search_id: Option<i64>,
     on_event: Channel<StreamEvent>,
 ) -> Result<ResearchResult, String> {
     if description.trim().is_empty() {
-    search_id: Option<i64>,
         return Err("Describe who you're looking for".to_string());
     }
     let focus = match focus.as_deref() {
@@ -712,10 +715,10 @@ pub async fn start_find_people(
         secondary_output_path: None,
         enrichment_output_path: None,
         playbook_id: Some(playbook_id),
+        search_id,
     };
 
     let job_id = queue
-        search_id,
         .start_job_with_callback(
             app.app_handle().clone(),
             full_prompt,
@@ -1044,10 +1047,10 @@ pub async fn start_scoring(
         secondary_output_path: None,
         enrichment_output_path: None,
         playbook_id: None,
+        search_id: None,
     };
 
     let entity_label = format!("{} (Scoring)", lead.company_name);
-        search_id: None,
 
     // Note: Scoring jobs don't have a research_status to reset, so no entity context needed
     // Note: CompletionHandler in queue.rs handles all database updates and file cleanup
@@ -1082,8 +1085,15 @@ pub async fn start_conversation_generation(
     state: State<'_, DbState>,
     queue: State<'_, JobQueue>,
     person_id: i64,
+    mode: Option<String>,
     on_event: Channel<StreamEvent>,
 ) -> Result<ResearchResult, String> {
+    let not_a_fit = match mode.as_deref() {
+        None => false,
+        Some("not_a_fit") => true,
+        Some(other) => return Err(format!("Unknown message mode: {other}")),
+    };
+
     // Check for existing active job and cancel it if found
     let existing_job_id = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
@@ -1156,6 +1166,7 @@ pub async fn start_conversation_generation(
         lead.as_ref(),
         &conversation_path,
         company_overview.as_ref().map(|p| p.content.as_str()),
+        not_a_fit,
     );
 
     let full_name = format!("{} {}", person.first_name, person.last_name);
@@ -1178,6 +1189,7 @@ pub async fn start_conversation_generation(
         secondary_output_path: None,
         enrichment_output_path: None,
         playbook_id: None,
+        search_id: None,
     };
 
     let entity_label = format!("{} (Conversation)", full_name);
@@ -1189,7 +1201,6 @@ pub async fn start_conversation_generation(
             app.app_handle().clone(),
             full_prompt,
             working_dir,
-        search_id: None,
             on_event.clone(),
             metadata,
             entity_label,
@@ -1448,6 +1459,7 @@ fn build_conversation_prompt(
     lead: Option<&db::Lead>,
     output_path: &std::path::Path,
     company_overview: Option<&str>,
+    not_a_fit: bool,
 ) -> String {
     // Format what we do section
     let what_we_do = if let Some(overview) = company_overview {
@@ -1505,6 +1517,24 @@ fn build_conversation_prompt(
     if let Some(found_because) = &person.found_because {
         person_profile.push_str(&format!("\n\nWhy they were found:\n{}", found_because));
     }
+    if let Some(fit) = &person.research_fit {
+        person_profile.push_str(&format!(
+            "\n\nResearch verdict: {}{}",
+            fit,
+            person
+                .research_fit_reason
+                .as_deref()
+                .map(|reason| format!(" ({reason})"))
+                .unwrap_or_default()
+        ));
+    }
+
+    // Someone research judged unlikely still gets a message, written for that situation
+    let scenario = if not_a_fit {
+        "<Scenario>\nResearch concluded this person is probably not who we're looking for. Write for that situation rather than pretending otherwise, and keep their actual work and use case at the center. Choose the ask that fits them: a short conversation about how they handle the problem today, an introduction to someone closer to it, or simply staying in touch as the product develops. Make it smaller than the usual ask, be honest that they may not be the ideal user, and never oversell. Skip any part of the instructions that assumes they're a fit, and leave out a \"not a fit\" section: this message is for them.\n</Scenario>\n\n"
+    } else {
+        ""
+    };
 
     format!(
         r#"{}<TargetPerson>
@@ -1515,7 +1545,7 @@ fn build_conversation_prompt(
 {}{}
 </TargetCompany>
 
-<ConversationInstructions>
+{}<ConversationInstructions>
 {}
 </ConversationInstructions>
 
@@ -1529,6 +1559,7 @@ Format: Markdown document with talking points and engagement strategies.
         person_profile,
         lead_context,
         company_profile,
+        scenario,
         conversation_prompt,
         output_path.display()
     )

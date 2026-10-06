@@ -24,6 +24,16 @@ const FIT_FACET: FilterFacet<PersonWithCompany> = {
   ],
 };
 
+const VERDICT_FACET: FilterFacet<PersonWithCompany> = {
+  id: "verdict",
+  label: "After research",
+  options: [
+    { id: "strong", label: "Fit confirmed", matches: (p) => p.researchFit === "strong" },
+    { id: "possible", label: "Possible fit", matches: (p) => p.researchFit === "possible" },
+    { id: "unlikely", label: "Not a fit", matches: (p) => p.researchFit === "unlikely" },
+  ],
+};
+
 const RESEARCH_FACET: FilterFacet<PersonWithCompany> = {
   id: "research",
   label: "Research",
@@ -39,9 +49,14 @@ export default function PeopleListPage() {
   const { people: allPeople, isLoading, refresh } = useAllPeople();
   const { leads } = useLeadsForSelect();
 
-  // Fit chips only make sense once Find people has tagged someone
+  // Fit chips only appear once Find people has tagged someone, and verdict
+  // chips once research has judged someone
   const facets = useMemo(
-    () => (allPeople.some((p) => p.foundFit) ? [FIT_FACET, RESEARCH_FACET] : [RESEARCH_FACET]),
+    () => [
+      ...(allPeople.some((p) => p.foundFit) ? [FIT_FACET] : []),
+      ...(allPeople.some((p) => p.researchFit) ? [VERDICT_FACET] : []),
+      RESEARCH_FACET,
+    ],
     [allPeople]
   );
   const filter = useListFilter(allPeople, { searchText, facets });
@@ -71,6 +86,7 @@ export default function PeopleListPage() {
       researchStatus: person.researchStatus,
       userStatus: person.userStatus,
       foundFit: person.foundFit,
+      researchFit: person.researchFit,
     };
     groupedPeople[status].push(personForList as PersonWithCompany);
   }

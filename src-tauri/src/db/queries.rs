@@ -183,7 +183,8 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry, p.found_because, p.found_fit
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit,
+                p.research_fit, p.research_fit_reason
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
          WHERE p.id = ?1",
@@ -218,6 +219,8 @@ pub fn get_person(conn: &Connection, id: i64) -> SqliteResult<Option<PersonWithC
             company_industry: row.get(18)?,
             found_because: row.get(19)?,
             found_fit: row.get(20)?,
+            research_fit: row.get(21)?,
+            research_fit_reason: row.get(22)?,
         }))
     } else {
         Ok(None)
@@ -229,7 +232,7 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
                 user_status, conversation_topics, conversation_generated_at, created_at,
-                found_because, found_fit
+                found_because, found_fit, research_fit, research_fit_reason
          FROM people WHERE id = ?1",
     )?;
 
@@ -259,6 +262,8 @@ pub fn get_person_raw(conn: &Connection, id: i64) -> SqliteResult<Option<Person>
             created_at: row.get(15)?,
             found_because: row.get(16)?,
             found_fit: row.get(17)?,
+            research_fit: row.get(18)?,
+            research_fit_reason: row.get(19)?,
         }))
     } else {
         Ok(None)
@@ -270,7 +275,7 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
         "SELECT id, lead_id, first_name, last_name, email, title, management_level,
                 linkedin_url, year_joined, person_profile, research_status, researched_at,
                 user_status, conversation_topics, conversation_generated_at, created_at,
-                found_because, found_fit
+                found_because, found_fit, research_fit, research_fit_reason
          FROM people WHERE lead_id = ?1 ORDER BY last_name ASC, first_name ASC",
     )?;
 
@@ -298,6 +303,8 @@ pub fn get_people_for_lead(conn: &Connection, lead_id: i64) -> SqliteResult<Vec<
             created_at: row.get(15)?,
             found_because: row.get(16)?,
             found_fit: row.get(17)?,
+            research_fit: row.get(18)?,
+            research_fit_reason: row.get(19)?,
         })
     })?;
 
@@ -309,7 +316,8 @@ pub fn get_all_people(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<P
         "SELECT p.id, p.lead_id, p.first_name, p.last_name, p.email, p.title, p.management_level,
                 p.linkedin_url, p.year_joined, p.person_profile, p.research_status, p.researched_at,
                 p.user_status, p.conversation_topics, p.conversation_generated_at, p.created_at,
-                l.company_name, l.website, l.industry, p.found_because, p.found_fit
+                l.company_name, l.website, l.industry, p.found_because, p.found_fit,
+                p.research_fit, p.research_fit_reason
          FROM people p
          LEFT JOIN leads l ON p.lead_id = l.id
          WHERE p.playbook_id = ?1
@@ -343,6 +351,8 @@ pub fn get_all_people(conn: &Connection, playbook_id: i64) -> SqliteResult<Vec<P
             company_industry: row.get(18)?,
             found_because: row.get(19)?,
             found_fit: row.get(20)?,
+            research_fit: row.get(21)?,
+            research_fit_reason: row.get(22)?,
         })
     })?;
 
@@ -1277,25 +1287,59 @@ pub fn enrich_lead<C: std::ops::Deref<Target = Connection>>(
 
 /// Enrich person data, only updating fields that are currently NULL
 /// This preserves any user-entered or previously enriched data
+/// Read a research verdict as "strong", "possible", or "unlikely", accepting
+/// the phrasings the prompt invites ("strong fit", "not a fit", ...)
+pub fn normalize_research_fit(raw: &str) -> Option<&'static str> {
+    let text = raw.trim().to_lowercase();
+    if text.is_empty() {
+        return None;
+    }
+    if text.starts_with("strong") || text.starts_with("good") || text.starts_with("yes") {
+        Some("strong")
+    } else if text.starts_with("possible")
+        || text.starts_with("maybe")
+        || text.starts_with("partial")
+        || text.starts_with("moderate")
+    {
+        Some("possible")
+    } else if text.starts_with("unlikely")
+        || text.starts_with("not")
+        || text.starts_with("no")
+        || text.starts_with("poor")
+        || text.starts_with("weak")
+    {
+        Some("unlikely")
+    } else {
+        None
+    }
+}
+
 pub fn enrich_person<C: std::ops::Deref<Target = Connection>>(
     conn: &C,
     person_id: i64,
     e: &PersonEnrichment,
 ) -> SqliteResult<usize> {
+    // Contact details only fill gaps; the verdict is replaced by each new research run
+    let fit = e.fit.as_deref().and_then(normalize_research_fit);
+    let fit_reason = fit.and(e.fit_reason.as_deref()).map(str::trim);
     conn.execute(
         "UPDATE people SET
             email = COALESCE(email, ?1),
             title = COALESCE(title, ?2),
             management_level = COALESCE(management_level, ?3),
             linkedin_url = COALESCE(linkedin_url, ?4),
-            year_joined = COALESCE(year_joined, ?5)
-         WHERE id = ?6",
+            year_joined = COALESCE(year_joined, ?5),
+            research_fit = COALESCE(?6, research_fit),
+            research_fit_reason = CASE WHEN ?6 IS NULL THEN research_fit_reason ELSE ?7 END
+         WHERE id = ?8",
         params![
             e.email,
             e.title,
             e.management_level,
             e.linkedin_url,
             e.year_joined,
+            fit,
+            fit_reason,
             person_id
         ],
     )

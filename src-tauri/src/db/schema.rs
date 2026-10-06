@@ -86,6 +86,9 @@ pub struct Person {
     pub found_because: Option<String>,
     /// How well Find people thinks they match: "strong" or "possible"
     pub found_fit: Option<String>,
+    /// Research's verdict after reading about them: "strong", "possible", or "unlikely"
+    pub research_fit: Option<String>,
+    pub research_fit_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +117,9 @@ pub struct PersonWithCompany {
     pub found_because: Option<String>,
     /// How well Find people thinks they match: "strong" or "possible"
     pub found_fit: Option<String>,
+    /// Research's verdict after reading about them: "strong", "possible", or "unlikely"
+    pub research_fit: Option<String>,
+    pub research_fit_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

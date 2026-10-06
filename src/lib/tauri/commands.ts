@@ -266,15 +266,20 @@ export async function startScoring(
 // Conversation Generation Commands
 // ============================================================================
 
+/** "not_a_fit" writes for someone research judged unlikely: a smaller, honest ask */
+export type MessageMode = "not_a_fit";
+
 export async function startConversationGeneration(
   personId: number,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
+  mode?: MessageMode
 ): Promise<ResearchResult> {
   const channel = new Channel<StreamEvent>();
   channel.onmessage = onEvent;
 
   return invoke("start_conversation_generation", {
     personId,
+    mode: mode ?? null,
     onEvent: channel,
   });
 }

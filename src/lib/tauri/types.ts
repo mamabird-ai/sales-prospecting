@@ -36,6 +36,9 @@ export interface NewLead {
 // Person Types
 // ============================================================================
 
+/** How research judged a person: a clear fit, worth considering, or probably not */
+export type ResearchFit = "strong" | "possible" | "unlikely";
+
 export interface Person {
   id: number;
   leadId: number | null;
@@ -57,6 +60,9 @@ export interface Person {
   foundBecause: string | null;
   /** How well Find people thinks they match */
   foundFit: "strong" | "possible" | null;
+  /** Research's verdict after reading about them, replaced by each research run */
+  researchFit: ResearchFit | null;
+  researchFitReason: string | null;
 }
 
 export interface PersonWithCompany extends Person {
@@ -176,12 +182,6 @@ export interface LeadWithScore {
 }
 
 // ============================================================================
-// Research Types
-// ============================================================================
-
-export interface StreamEvent {
-  jobId: string;
-// ============================================================================
 // People Searches
 // ============================================================================
 
@@ -201,6 +201,12 @@ export interface PeopleSearch {
   peopleActedOn: number;
 }
 
+// ============================================================================
+// Research Types
+// ============================================================================
+
+export interface StreamEvent {
+  jobId: string;
   eventType: string;
   content: string;
   timestamp: number;

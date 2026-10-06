@@ -2,6 +2,8 @@ pub mod calibration;
 pub mod people_searches;
 pub mod playbooks;
 pub mod queries;
+#[cfg(test)]
+mod research_fit_tests;
 pub mod schema;
 pub mod seed;
 
@@ -349,6 +351,11 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
         CREATE INDEX IF NOT EXISTS idx_people_searches_playbook ON people_searches(playbook_id);
         "#,
     )?;
+    // Research's verdict on a person ("strong", "possible", "unlikely") and why
+    if table_exists("people") && !column_exists(conn, "people", "research_fit") {
+        conn.execute("ALTER TABLE people ADD COLUMN research_fit TEXT", [])?;
+        conn.execute("ALTER TABLE people ADD COLUMN research_fit_reason TEXT", [])?;
+    }
     // Which Find people search added a person, for the outcome shown next to each past search
     if table_exists("people") && !column_exists(conn, "people", "search_id") {
         conn.execute("ALTER TABLE people ADD COLUMN search_id INTEGER", [])?;

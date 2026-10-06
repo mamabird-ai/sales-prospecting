@@ -13,6 +13,8 @@ import {
 import { PersonProfileTabs } from "@/components/people/person-profile-tabs";
 import { UserStatusSelector } from "@/components/status/user-status-selector";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
+import { ResearchFitTag } from "@/components/people/research-fit-tag";
+import type { ResearchFit } from "@/lib/tauri/types";
 import { validatePersonUserStatus } from "@/lib/constants/status-config";
 import {
   EntityDetailLayout,
@@ -86,6 +88,10 @@ export default function PersonDetailPage() {
       <SidebarSection title="Status">
         <UserStatusSelector type="person" entityId={person.id} currentStatus={userStatus} />
       </SidebarSection>
+
+      {person.researchFit && (
+        <ResearchVerdict fit={person.researchFit} reason={person.researchFitReason} />
+      )}
 
       {person.foundBecause && <FoundBecause text={person.foundBecause} fit={person.foundFit} />}
 
@@ -210,11 +216,27 @@ export default function PersonDetailPage() {
           personProfile={person.personProfile}
           conversationTopics={person.conversationTopics}
           companyName={person.companyName}
+          researchFit={person.researchFit}
         />
       }
       activityContent={activityContent}
       sidebarContent={sidebarContent}
     />
+  );
+}
+
+/** What research concluded about the person, so the fit shows without opening the profile */
+function ResearchVerdict({ fit, reason }: { fit: ResearchFit; reason: string | null }) {
+  return (
+    <div className="mb-6 rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Research verdict
+        </h3>
+        <ResearchFitTag fit={fit} />
+      </div>
+      {reason && <p className="text-xs/relaxed text-foreground">{reason}</p>}
+    </div>
   );
 }
 

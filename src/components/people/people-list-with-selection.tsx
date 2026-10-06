@@ -18,6 +18,8 @@ import {
   validatePersonUserStatus,
 } from "@/lib/constants/status-config";
 import { ResearchStatusBadge } from "@/components/status/research-status-badge";
+import { ResearchFitTag } from "@/components/people/research-fit-tag";
+import type { ResearchFit } from "@/lib/tauri/types";
 import { useMemo, useCallback, type ReactNode } from "react";
 
 type PersonWithCompany = {
@@ -32,6 +34,7 @@ type PersonWithCompany = {
   researchStatus: string | null;
   userStatus: string | null;
   foundFit?: "strong" | "possible" | null;
+  researchFit?: ResearchFit | null;
 };
 
 interface PeopleListWithSelectionProps {
@@ -39,12 +42,15 @@ interface PeopleListWithSelectionProps {
   onRefresh?: () => void;
   /** Toolbar content shown when nothing is selected */
   toolbar?: ReactNode;
+  /** Shown when the list is empty, e.g. a filter hid everyone */
+  emptyContent?: ReactNode;
 }
 
 export function PeopleListWithSelection({
   groupedPeople,
   onRefresh,
   toolbar,
+  emptyContent,
 }: PeopleListWithSelectionProps) {
   const clearSelection = useSelectionStore((state) => state.clearAll);
 
@@ -197,6 +203,7 @@ export function PeopleListWithSelection({
       renderRow={(person) => <PersonRow person={person} />}
       actions={actions}
       toolbar={toolbar}
+      emptyContent={emptyContent}
     />
   );
 }
@@ -232,9 +239,14 @@ function PersonRow({ person }: { person: PersonWithCompany }) {
         </div>
       )}
 
-      {/* Always the same width, so the company column lines up on rows without a tag */}
-      <span className="flex w-24 shrink-0 justify-end">
-        {person.foundFit && <FitTag fit={person.foundFit} />}
+      {/* Always the same width, so the company column lines up on rows without a tag.
+          Research's verdict replaces the Find people guess once there is one. */}
+      <span className="flex w-28 shrink-0 justify-end">
+        {person.researchFit ? (
+          <ResearchFitTag fit={person.researchFit} />
+        ) : (
+          person.foundFit && <FitTag fit={person.foundFit} />
+        )}
       </span>
       <ResearchStatusBadge status={person.researchStatus} size="sm" />
     </SelectableRow>

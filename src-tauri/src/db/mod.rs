@@ -1,4 +1,5 @@
 pub mod calibration;
+pub mod people_searches;
 pub mod playbooks;
 pub mod queries;
 pub mod schema;
@@ -9,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 pub use calibration::*;
+pub use people_searches::*;
 pub use playbooks::*;
 pub use queries::*;
 pub use schema::*;
@@ -333,6 +335,23 @@ fn run_migrations(conn: &Connection) -> SqliteResult<()> {
     // How well Find people thinks a person matches: "strong" or "possible"
     if table_exists("people") && !column_exists(conn, "people", "found_fit") {
         conn.execute("ALTER TABLE people ADD COLUMN found_fit TEXT", [])?;
+    }
+    // Past Find people searches, so a description can be reused and its results compared
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS people_searches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            playbook_id INTEGER NOT NULL DEFAULT 1,
+            description TEXT NOT NULL,
+            size TEXT NOT NULL DEFAULT 'standard',
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_people_searches_playbook ON people_searches(playbook_id);
+        "#,
+    )?;
+    // Which Find people search added a person, for the outcome shown next to each past search
+    if table_exists("people") && !column_exists(conn, "people", "search_id") {
+        conn.execute("ALTER TABLE people ADD COLUMN search_id INTEGER", [])?;
     }
     // The user's own verdict on a company, for checking the fit criteria
     if table_exists("leads") && !column_exists(conn, "leads", "expected_fit") {

@@ -132,6 +132,7 @@ pub async fn start_research(
         secondary_output_path: Some(people_path),
         enrichment_output_path: Some(enrichment_path),
         playbook_id: None,
+        search_id: None,
     };
 
     // Clone the app handle for the callback
@@ -287,6 +288,7 @@ pub async fn start_person_research(
         secondary_output_path: None,
         enrichment_output_path: Some(enrichment_path),
         playbook_id: None,
+        search_id: None,
     };
 
     let entity_label = full_name.clone();
@@ -608,6 +610,7 @@ pub async fn start_find_leads(
     };
 
     let entity_label = format!("Find Leads: {}", truncate_chars(&icp_description, 50));
+        search_id: None,
 
     let job_id = queue
         .start_job_with_callback(
@@ -656,6 +659,7 @@ pub async fn start_find_people(
     on_event: Channel<StreamEvent>,
 ) -> Result<ResearchResult, String> {
     if description.trim().is_empty() {
+    search_id: Option<i64>,
         return Err("Describe who you're looking for".to_string());
     }
     let focus = match focus.as_deref() {
@@ -711,6 +715,7 @@ pub async fn start_find_people(
     };
 
     let job_id = queue
+        search_id,
         .start_job_with_callback(
             app.app_handle().clone(),
             full_prompt,
@@ -1042,6 +1047,7 @@ pub async fn start_scoring(
     };
 
     let entity_label = format!("{} (Scoring)", lead.company_name);
+        search_id: None,
 
     // Note: Scoring jobs don't have a research_status to reset, so no entity context needed
     // Note: CompletionHandler in queue.rs handles all database updates and file cleanup
@@ -1183,6 +1189,7 @@ pub async fn start_conversation_generation(
             app.app_handle().clone(),
             full_prompt,
             working_dir,
+        search_id: None,
             on_event.clone(),
             metadata,
             entity_label,

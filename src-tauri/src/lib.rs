@@ -126,6 +126,9 @@ pub fn run() {
             // Find leads commands
             commands::start_find_leads,
             commands::start_find_people,
+            commands::create_people_search,
+            commands::delete_people_search,
+            commands::get_people_searches,
             // Conversation commands
             commands::start_conversation_generation,
             // Onboarding commands

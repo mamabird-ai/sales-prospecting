@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { IconLoader2, IconSearch, IconUserSearch, IconWorldSearch } from "@tabler/icons-react";
+import {
+  IconHistory,
+  IconLoader2,
+  IconSearch,
+  IconUserSearch,
+  IconWorldSearch,
+} from "@tabler/icons-react";
 import {
   Dialog,
   DialogContent,
@@ -12,20 +18,27 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { parseProfile } from "@/lib/company-profile";
 import { handleStreamEvent } from "@/lib/stream/handle-stream-event";
 import { toastJobStarted } from "@/lib/stream/job-toasts";
-import { getPromptByType, startFindPeople, type SearchFocus } from "@/lib/tauri/commands";
+import {
+  createPeopleSearch,
+  deletePeopleSearch,
+  getPeopleSearches,
+  getPromptByType,
+  startFindPeople,
+  type SearchFocus,
+} from "@/lib/tauri/commands";
+import type { PeopleSearch, PeopleSearchSize } from "@/lib/tauri/types";
 import { cn } from "@/lib/utils";
-
-type SearchSize = "standard" | "wide";
 
 /** A wide search runs one search per part of the web, in parallel */
 const WIDE_FOCUSES: SearchFocus[] = ["linkedin", "talks", "startups"];
 
 const SIZES: {
-  id: SearchSize;
+  id: PeopleSearchSize;
   title: string;
   description: string;
   estimate: string;
@@ -49,12 +62,37 @@ const SIZES: {
 
 const SIZE_STORAGE_KEY = "find-people-size";
 
-function rememberedSize(): SearchSize {
+function rememberedSize(): PeopleSearchSize {
   try {
     return localStorage.getItem(SIZE_STORAGE_KEY) === "wide" ? "wide" : "standard";
   } catch {
     return "standard";
   }
+}
+
+/** "Today", "Yesterday", "5 days ago", or the date for older searches */
+function describeWhen(createdAtSeconds: number): string {
+  const days = Math.floor((Date.now() / 1000 - createdAtSeconds) / 86_400);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 14) return `${days} days ago`;
+  return new Date(createdAtSeconds * 1000).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** One line on what a past search turned up */
+function describeOutcome(search: PeopleSearch): string {
+  const parts = [
+    describeWhen(search.createdAt),
+    search.size === "wide" ? "Wide" : "Standard",
+    search.peopleFound === 0
+      ? "Nobody found yet"
+      : `${search.peopleFound} found · ${search.strongFits} strong fit`,
+  ];
+  if (search.peopleActedOn > 0) parts.push(`${search.peopleActedOn} acted on`);
+  return parts.join(" · ");
 }
 
 /**
@@ -65,11 +103,25 @@ export function FindPeopleModal() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [description, setDescription] = useState("");
-  const [size, setSize] = useState<SearchSize>(rememberedSize);
+  const [size, setSize] = useState<PeopleSearchSize>(rememberedSize);
+  const [recent, setRecent] = useState<PeopleSearch[]>([]);
+  const [recentOpen, setRecentOpen] = useState(false);
 
-  // Start from "Who's a great fit?" on Your company, so there's less to type
+  // Start from the last search in this playbook, or failing that from
+  // "Who's a great fit?" on Your company, so there's less to type
   const prefill = async () => {
+    let searches: PeopleSearch[] = [];
+    try {
+      searches = await getPeopleSearches();
+      setRecent(searches);
+    } catch {
+      // History is a convenience; the box still works without it
+    }
     if (description.trim()) return;
+    if (searches[0]) {
+      setDescription(searches[0].description);
+      return;
+    }
     try {
       const overview = (await getPromptByType("company_overview"))?.content ?? "";
       const customer = parseProfile(overview).customer.trim();
@@ -79,7 +131,7 @@ export function FindPeopleModal() {
     }
   };
 
-  const chooseSize = (next: SearchSize) => {
+  const chooseSize = (next: PeopleSearchSize) => {
     setSize(next);
     try {
       localStorage.setItem(SIZE_STORAGE_KEY, next);
@@ -88,19 +140,35 @@ export function FindPeopleModal() {
     }
   };
 
+  const reuse = (search: PeopleSearch) => {
+    setDescription(search.description);
+    chooseSize(search.size);
+    setRecentOpen(false);
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description.trim()) return;
     setLoading(true);
     const text = description.trim();
+
+    // The search is recorded first so each job can tie the people it finds to it
+    let searchId: number | undefined;
+    try {
+      searchId = await createPeopleSearch(text, size);
+    } catch {
+      // Without a record the search still runs; it just won't appear in Recent
+    }
+
     const focuses: (SearchFocus | undefined)[] = size === "wide" ? WIDE_FOCUSES : [undefined];
     const results = await Promise.allSettled(
-      focuses.map((focus) => startFindPeople(text, handleStreamEvent, focus))
+      focuses.map((focus) => startFindPeople(text, handleStreamEvent, focus, searchId))
     );
     setLoading(false);
 
     const started = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     if (started.length === 0) {
+      if (searchId !== undefined) void deletePeopleSearch(searchId).catch(() => {});
       const failure = results.find((r) => r.status === "rejected");
       const reason = failure?.status === "rejected" ? failure.reason : undefined;
       toast.error("Couldn't start finding people", {
@@ -110,6 +178,7 @@ export function FindPeopleModal() {
     }
 
     setOpen(false);
+    // The box opens with this description next time, from Recent searches
     setDescription("");
     toastJobStarted(
       started.length > 1
@@ -147,7 +216,39 @@ export function FindPeopleModal() {
         </DialogHeader>
         <form onSubmit={submit} className="grid gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="find-people-description">Who are you looking for?</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="find-people-description">Who are you looking for?</Label>
+              {recent.length > 0 && (
+                <Popover open={recentOpen} onOpenChange={setRecentOpen}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                      <IconHistory className="size-3.5" />
+                      Recent searches
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-[26rem] max-w-[calc(100vw-2rem)] p-1">
+                    <ul className="max-h-72 overflow-y-auto" aria-label="Recent searches">
+                      {recent.map((search) => (
+                        <li key={search.id}>
+                          <button
+                            type="button"
+                            onClick={() => reuse(search)}
+                            className="flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left outline-none hover:bg-white/[0.04] focus-visible:bg-white/[0.04]"
+                          >
+                            <span className="line-clamp-2 text-xs text-foreground">
+                              {search.description}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {describeOutcome(search)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
             <Textarea
               id="find-people-description"
               value={description}

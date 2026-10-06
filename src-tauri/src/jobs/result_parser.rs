@@ -30,4 +30,7 @@ pub struct JobMetadata {
     /// For LeadFinder and PeopleFinder: the playbook to add results to. Other job types
     /// work on an existing company or person, which already has a playbook.
     pub playbook_id: Option<i64>,
+    /// For PeopleFinder: the search this job belongs to, so the people it finds
+    /// show up in that search's outcome
+    pub search_id: Option<i64>,
 }

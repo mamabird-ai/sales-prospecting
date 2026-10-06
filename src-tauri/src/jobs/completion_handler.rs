@@ -106,6 +106,7 @@ impl CompletionHandler {
         tx: &rusqlite::Transaction,
         people: &[serde_json::Value],
         playbook_id: i64,
+        search_id: Option<i64>,
     ) -> rusqlite::Result<()> {
         let now = chrono::Utc::now().timestamp();
         let text = |value: &serde_json::Value, key: &str| {
@@ -241,8 +242,9 @@ impl CompletionHandler {
 
             tx.execute(
                 "INSERT INTO people (first_name, last_name, title, linkedin_url, lead_id, research_status,
-                                     user_status, created_at, playbook_id, found_because, found_fit)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7, ?8, ?9)",
+                                     user_status, created_at, playbook_id, found_because, found_fit,
+                                     search_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 'new', ?6, ?7, ?8, ?9, ?10)",
                 rusqlite::params![
                     first,
                     last,
@@ -252,7 +254,8 @@ impl CompletionHandler {
                     now,
                     playbook_id,
                     found_because,
-                    found_fit
+                    found_fit,
+                    search_id
                 ],
             )?;
             // 0 refreshes the people list for people without a company
@@ -875,7 +878,7 @@ impl CompletionHandler {
                     None => db::active_playbook_id(tx)
                         .map_err(|e| CompletionError::DatabaseError(e.to_string()))?,
                 };
-                self.insert_found_people(tx, people, playbook_id)
+                self.insert_found_people(tx, people, playbook_id, metadata.search_id)
                     .map_err(|e| CompletionError::DatabaseError(e.to_string()))?;
             }
         }

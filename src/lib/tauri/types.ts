@@ -181,6 +181,26 @@ export interface LeadWithScore {
 
 export interface StreamEvent {
   jobId: string;
+// ============================================================================
+// People Searches
+// ============================================================================
+
+export type PeopleSearchSize = "standard" | "wide";
+
+/** A past Find people search and what it turned up */
+export interface PeopleSearch {
+  id: number;
+  description: string;
+  size: PeopleSearchSize;
+  createdAt: number;
+  /** People this search added to the playbook */
+  peopleFound: number;
+  /** Of those, how many Find people marked as a strong fit */
+  strongFits: number;
+  /** Of those, how many you've moved past "New" */
+  peopleActedOn: number;
+}
+
   eventType: string;
   content: string;
   timestamp: number;

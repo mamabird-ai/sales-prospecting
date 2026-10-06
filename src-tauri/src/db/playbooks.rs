@@ -186,7 +186,7 @@ pub fn delete_playbook(conn: &Connection, id: i64) -> SqliteResult<()> {
         "DELETE FROM lead_scores WHERE lead_id IN (SELECT id FROM leads WHERE playbook_id = ?1)",
         params![id],
     )?;
-    for table in ["people", "leads", "prompts", "scoring_config"] {
+    for table in ["people", "people_searches", "leads", "prompts", "scoring_config"] {
         tx.execute(
             &format!("DELETE FROM {table} WHERE playbook_id = ?1"),
             params![id],

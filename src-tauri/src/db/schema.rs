@@ -39,6 +39,27 @@ pub struct NewLead {
 }
 
 // ============================================================================
+// People Searches
+// ============================================================================
+
+/// A past Find people search and what it turned up
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeopleSearch {
+    pub id: i64,
+    pub description: String,
+    /// "standard" (one job) or "wide" (one job per part of the web)
+    pub size: String,
+    pub created_at: i64,
+    /// People this search added to the playbook
+    pub people_found: i64,
+    /// Of those, how many Find people marked as a strong fit
+    pub strong_fits: i64,
+    /// Of those, how many the user has moved past "New"
+    pub people_acted_on: i64,
+}
+
+// ============================================================================
 // Person Table
 // ============================================================================
 

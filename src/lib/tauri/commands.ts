@@ -20,6 +20,8 @@ import type {
   PlaybookSource,
   TierLabels,
   Calibration,
+  PeopleSearch,
+  PeopleSearchSize,
 } from "./types";
 
 // ============================================================================
@@ -194,7 +196,8 @@ export type SearchFocus = "linkedin" | "talks" | "startups";
 export async function startFindPeople(
   description: string,
   onEvent: (event: StreamEvent) => void,
-  focus?: SearchFocus
+  focus?: SearchFocus,
+  searchId?: number
 ): Promise<ResearchResult> {
   const channel = new Channel<StreamEvent>();
   channel.onmessage = onEvent;
@@ -202,8 +205,27 @@ export async function startFindPeople(
   return invoke("start_find_people", {
     description,
     focus: focus ?? null,
+    searchId: searchId ?? null,
     onEvent: channel,
   });
+}
+
+/** Record a Find people search so the people its jobs find count toward it */
+export async function createPeopleSearch(
+  description: string,
+  size: PeopleSearchSize
+): Promise<number> {
+  return invoke("create_people_search", { description, size });
+}
+
+/** Forget a search whose jobs couldn't start */
+export async function deletePeopleSearch(id: number): Promise<void> {
+  return invoke("delete_people_search", { id });
+}
+
+/** Past searches in the active playbook, newest first */
+export async function getPeopleSearches(): Promise<PeopleSearch[]> {
+  return invoke("get_people_searches");
 }
 
 export async function startFindLeads(

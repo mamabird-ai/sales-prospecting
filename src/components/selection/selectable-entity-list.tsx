@@ -27,6 +27,8 @@ interface SelectableEntityListProps<T, S extends string> {
   actions: ActionConfig[];
   /** Toolbar content shown when nothing is selected */
   toolbar?: React.ReactNode;
+  /** Shown in place of the groups when there are no items, e.g. a filter hid them all */
+  emptyContent?: React.ReactNode;
 }
 
 export function SelectableEntityList<T, S extends string>({
@@ -38,6 +40,7 @@ export function SelectableEntityList<T, S extends string>({
   renderRow,
   actions,
   toolbar,
+  emptyContent,
 }: SelectableEntityListProps<T, S>) {
   const busy = useBusyEntities(entityType);
 
@@ -57,6 +60,7 @@ export function SelectableEntityList<T, S extends string>({
     <SelectionProvider entityType={entityType} allIds={allIds} busy={busy}>
       <SelectionToolbar actions={actions} idleContent={toolbar} />
       <div className="flex-1 overflow-auto">
+        {allIds.length === 0 && emptyContent}
         {statusOrder.map((status) => {
           const items = groupedItems[status];
           if (!items || items.length === 0) return null;

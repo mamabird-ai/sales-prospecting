@@ -34,12 +34,15 @@ interface LeadListWithSelectionProps {
   onRefresh?: () => void;
   /** Toolbar content shown when nothing is selected */
   toolbar?: React.ReactNode;
+  /** Shown when the list is empty, e.g. a filter hid everyone */
+  emptyContent?: React.ReactNode;
 }
 
 export function LeadListWithSelection({
   groupedLeads,
   onRefresh,
   toolbar,
+  emptyContent,
 }: LeadListWithSelectionProps) {
   const clearSelection = useSelectionStore((state) => state.clearAll);
 
@@ -186,6 +189,7 @@ export function LeadListWithSelection({
       renderRow={(lead) => <LeadRow lead={lead} />}
       actions={actions}
       toolbar={toolbar}
+      emptyContent={emptyContent}
     />
   );
 }

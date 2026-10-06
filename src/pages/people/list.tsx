@@ -1,5 +1,8 @@
-import { Button } from "@/components/ui/button";
-import { IconSearch, IconUsers, IconLoader2 } from "@tabler/icons-react";
+import { IconFilter, IconUsers, IconLoader2 } from "@tabler/icons-react";
+import { useMemo } from "react";
+import { ListFilterBar } from "@/components/selection";
+import { SmallEmptyState } from "@/components/ui/empty-state";
+import { useListFilter, type FilterFacet } from "@/lib/hooks/use-list-filter";
 import { AddPersonModal } from "@/components/people/add-person-modal";
 import { FindPeopleModal } from "@/components/people/find-people-modal";
 import { PeopleListWithSelection } from "@/components/people/people-list-with-selection";
@@ -11,9 +14,38 @@ import {
   validatePersonUserStatus,
 } from "@/lib/constants/status-config";
 
+const FIT_FACET: FilterFacet<PersonWithCompany> = {
+  id: "fit",
+  label: "Fit",
+  options: [
+    { id: "strong", label: "Strong fit", matches: (p) => p.foundFit === "strong" },
+    { id: "possible", label: "Worth a look", matches: (p) => p.foundFit === "possible" },
+    { id: "untagged", label: "Untagged", matches: (p) => !p.foundFit },
+  ],
+};
+
+const RESEARCH_FACET: FilterFacet<PersonWithCompany> = {
+  id: "research",
+  label: "Research",
+  options: [
+    { id: "done", label: "Researched", matches: (p) => p.researchStatus === "completed" },
+    { id: "todo", label: "Not researched", matches: (p) => p.researchStatus !== "completed" },
+  ],
+};
+
+const searchText = (p: PersonWithCompany) => [p.firstName, p.lastName, p.title, p.companyName];
+
 export default function PeopleListPage() {
-  const { people, isLoading, refresh } = useAllPeople();
+  const { people: allPeople, isLoading, refresh } = useAllPeople();
   const { leads } = useLeadsForSelect();
+
+  // Fit chips only make sense once Find people has tagged someone
+  const facets = useMemo(
+    () => (allPeople.some((p) => p.foundFit) ? [FIT_FACET, RESEARCH_FACET] : [RESEARCH_FACET]),
+    [allPeople]
+  );
+  const filter = useListFilter(allPeople, { searchText, facets });
+  const people = filter.filtered;
 
   // Group people by user status
   const groupedPeople = PERSON_USER_STATUS_ORDER.reduce(
@@ -43,7 +75,7 @@ export default function PeopleListPage() {
     groupedPeople[status].push(personForList as PersonWithCompany);
   }
 
-  if (isLoading && people.length === 0) {
+  if (isLoading && allPeople.length === 0) {
     return (
       <>
         <header
@@ -80,11 +112,11 @@ export default function PeopleListPage() {
       <PeopleListWithSelection
         groupedPeople={groupedPeople}
         onRefresh={refresh}
-        toolbar={
-          <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
-            <IconSearch className="size-3.5 mr-1" />
-            Filter
-          </Button>
+        toolbar={<ListFilterBar filter={filter} placeholder="Search people" />}
+        emptyContent={
+          filter.active && (
+            <SmallEmptyState icon={IconFilter} message="Nobody matches these filters" />
+          )
         }
       />
     </>

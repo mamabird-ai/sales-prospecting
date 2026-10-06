@@ -1,5 +1,8 @@
-import { Button } from "@/components/ui/button";
-import { IconSearch, IconBuilding } from "@tabler/icons-react";
+import { IconBuilding, IconFilter } from "@tabler/icons-react";
+import { useMemo } from "react";
+import { ListFilterBar } from "@/components/selection";
+import { SmallEmptyState } from "@/components/ui/empty-state";
+import { useListFilter, type FilterFacet } from "@/lib/hooks/use-list-filter";
 import { AddLeadModal } from "@/components/leads/add-lead-modal";
 import { FindLeadsModal } from "@/components/leads/find-leads-modal";
 import { LeadListWithSelection } from "@/components/leads/lead-list-with-selection";
@@ -30,35 +33,47 @@ function groupByUserStatus(leads: LeadWithScore[]) {
   return groups;
 }
 
-// Helper to count leads by tier
-function getTierCounts(leads: LeadWithScore[]) {
-  const counts = {
-    hot: 0,
-    warm: 0,
-    nurture: 0,
-    disqualified: 0,
-    unscored: 0,
-  };
+const RESEARCH_FACET: FilterFacet<LeadWithScore> = {
+  id: "research",
+  label: "Research",
+  options: [
+    { id: "done", label: "Researched", matches: (l) => l.researchStatus === "completed" },
+    { id: "todo", label: "Not researched", matches: (l) => l.researchStatus !== "completed" },
+  ],
+};
 
-  for (const lead of leads) {
-    if (lead.score) {
-      counts[lead.score.tier]++;
-    } else {
-      counts.unscored++;
-    }
-  }
-
-  return counts;
-}
+const searchText = (l: LeadWithScore) => [l.companyName, l.industry, l.city, l.state, l.website];
 
 export default function LeadListPage() {
-  const { leads, isLoading, refresh } = useLeadsWithScores();
-
-  const groupedLeads = groupByUserStatus(leads);
-  const tierCounts = getTierCounts(leads);
+  const { leads: allLeads, isLoading, refresh } = useLeadsWithScores();
   const tierLabels = useTierLabels();
 
-  if (isLoading && leads.length === 0) {
+  // Tier chips use the playbook's own names, e.g. "Hot" or "Ideal partner"
+  const facets = useMemo<FilterFacet<LeadWithScore>[]>(
+    () => [
+      {
+        id: "tier",
+        label: "Tier",
+        options: [
+          { id: "hot", label: tierLabels.hot, matches: (l) => l.score?.tier === "hot" },
+          { id: "warm", label: tierLabels.warm, matches: (l) => l.score?.tier === "warm" },
+          { id: "nurture", label: tierLabels.nurture, matches: (l) => l.score?.tier === "nurture" },
+          {
+            id: "disqualified",
+            label: tierLabels.disqualified,
+            matches: (l) => l.score?.tier === "disqualified",
+          },
+          { id: "unscored", label: "Unscored", matches: (l) => !l.score },
+        ],
+      },
+      RESEARCH_FACET,
+    ],
+    [tierLabels]
+  );
+  const filter = useListFilter(allLeads, { searchText, facets });
+  const groupedLeads = groupByUserStatus(filter.filtered);
+
+  if (isLoading && allLeads.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-muted-foreground">Loading leads…</p>
@@ -84,36 +99,11 @@ export default function LeadListPage() {
       <LeadListWithSelection
         groupedLeads={groupedLeads}
         onRefresh={refresh}
-        toolbar={
-          <>
-            <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground px-2">
-              <IconSearch className="size-3.5 mr-1" />
-              Filter
-            </Button>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2 text-xs">
-              {tierCounts.hot > 0 && (
-                <span className="text-green-500">
-                  {tierLabels.hot}: {tierCounts.hot}
-                </span>
-              )}
-              {tierCounts.warm > 0 && (
-                <span className="text-orange-500">
-                  {tierLabels.warm}: {tierCounts.warm}
-                </span>
-              )}
-              {tierCounts.nurture > 0 && (
-                <span className="text-orange-400">
-                  {tierLabels.nurture}: {tierCounts.nurture}
-                </span>
-              )}
-              {tierCounts.disqualified > 0 && (
-                <span className="text-red-500">
-                  {tierLabels.disqualified}: {tierCounts.disqualified}
-                </span>
-              )}
-            </div>
-          </>
+        toolbar={<ListFilterBar filter={filter} placeholder="Search companies" />}
+        emptyContent={
+          filter.active && (
+            <SmallEmptyState icon={IconFilter} message="No companies match these filters" />
+          )
         }
       />
     </>
